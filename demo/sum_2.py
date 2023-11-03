@@ -126,7 +126,7 @@ class MNISTSum2Net(nn.Module):
     b_distrs = self.mnist_net(b_imgs) # Tensor 64 x 10
 
     # Then execute the reasoning module; the result is a size 19 tensor
-    return self.sum_2(a_distrs, b_distrs) # Tensor 64 x 19
+    return (a_distrs, b_distrs, self.sum_2(a_distrs, b_distrs)) # Tensor 64 x 19
 
 
 class Trainer():
@@ -148,9 +148,19 @@ class Trainer():
     iter = tqdm(self.train_loader, total=len(self.train_loader))
     for (data, target) in iter:
       self.optimizer.zero_grad()
-      output = self.network(data)
+
+      # network outputs Jacobian
+      (a_distr, b_distr, (output, jacobian)) = self.network(data)
       loss = self.loss(output, target)
-      loss.backward()
+
+      # manually compute gradient
+      # loss.backward()
+      (dl,) = torch.autograd.grad(outputs=loss, inputs=output)
+      grad_dl_a = (dl.unsqueeze(1)).bmm(jacobian[0]).squeeze(1)
+      grad_dl_b = (dl.unsqueeze(1)).bmm(jacobian[1]).squeeze(1)
+      a_distr.backward(gradient = grad_dl_a)
+      b_distr.backward(gradient = grad_dl_b)
+
       self.optimizer.step()
       iter.set_description(f"[Train Epoch {epoch}] Loss: {loss.item():.4f}")
 
@@ -162,7 +172,7 @@ class Trainer():
     with torch.no_grad():
       iter = tqdm(self.test_loader, total=len(self.test_loader))
       for (data, target) in iter:
-        output = self.network(data)
+        (_, _, (output, _)) = self.network(data)
         test_loss += self.loss(output, target).item()
         pred = output.data.max(1, keepdim=True)[1]
         correct += pred.eq(target.data.view_as(pred)).sum()
