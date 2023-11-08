@@ -1,5 +1,4 @@
 from typing import *
-import random
 import torch
 
 
@@ -65,9 +64,7 @@ class DiscreteInputMapping(InputMapping):
         distrs = torch.distributions.Categorical(probs=inputs)
         sampled_indices = distrs.sample((sample_count,)).transpose(0, 1)
         sampled_elements = [[self.elements[i] for i in sampled_indices_for_task_i] for sampled_indices_for_task_i in sampled_indices]
-        sampled_distr = torch.nn.functional.one_hot(sampled_indices, num_classes=num_input_elements).float().transpose(0,1)
-        sampled_distr = sampled_distr - torch.nn.functional.softmax(sampled_distr, dim=0)
-        return (sampled_indices, sampled_elements, sampled_distr)
+        return (sampled_indices, sampled_elements)
 
 
 class OutputMapping:
@@ -94,14 +91,6 @@ class DiscreteOutputMapping(OutputMapping):
                 if results[i][j] != RESERVED_FAILURE:
                     result_tensor[i, self.element_indices[results[i][j]]] += result_probs[i, j]
         return torch.nn.functional.normalize(result_tensor, dim=1)
-    
-    def vectorize_single(self, results, batch_size, sample_count) -> torch.Tensor:
-        result_tensor = torch.zeros((sample_count, batch_size, len(self.elements)), requires_grad=True)
-        for i in range(batch_size):
-            for j in range(sample_count):
-                if results[i][j] != RESERVED_FAILURE:
-                  result_tensor.data[j, i, self.element_indices[results[i][j]]] += 1
-        return result_tensor
 
 
 class UnknownDiscreteOutputMapping(OutputMapping):
@@ -151,19 +140,15 @@ class BlackBoxFunction(torch.nn.Module):
             assert batch_size == self.get_batch_size(inputs[i]), "all inputs must have the same batch size"
 
         # Prepare the inputs to the black-box function
-        to_compute_inputs, sampled_indices, sampled_distrs, argmax_inputs = [], [], [], []
+        to_compute_inputs, sampled_indices = [], []
         for (input_i, input_mapping_i) in zip(inputs, self.input_mappings):
-            sampled_indices_i, sampled_elements_i, sampled_distr_i = input_mapping_i.sample(input_i, sample_count=self.sample_count)
+            sampled_indices_i, sampled_elements_i = input_mapping_i.sample(input_i, sample_count=self.sample_count)
             to_compute_inputs.append(sampled_elements_i)
             sampled_indices.append(sampled_indices_i)
-            sampled_distrs.append(sampled_distr_i)
-            argmax_inputs.append(input_i.argmax(dim=1).tolist())
         to_compute_inputs = self.zip_batched_inputs(to_compute_inputs)
-        argmax_inputs = list(zip(*argmax_inputs))
 
         # Get the outputs from the black-box function
         results = self.invoke_function_on_batched_inputs(to_compute_inputs)
-        argmax_result = self.invoke_function_on_batched_inputs(argmax_inputs)
 
         # Aggregate the probabilities
         result_probs = torch.ones((batch_size, self.sample_count))
@@ -172,19 +157,18 @@ class BlackBoxFunction(torch.nn.Module):
 
         # Vectorize the results back into a tensor
         result_vector = self.output_mapping.vectorize(results, result_probs)
+        (_, y_dim) = result_vector.shape
+        x_dims = [10, 10]
 
         # compute Jacobian
-        (_, y_dim) = result_vector.shape
         jacobian = []
-        # vectorize each results_1 into an one-hot encoding 
-        result_vec = self.output_mapping.vectorize_single(results, batch_size, self.sample_count)
-        argmax_vec = self.output_mapping.vectorize_single(argmax_result, batch_size, 1)
-
+        result_vec = torch.nn.functional.one_hot(torch.Tensor(results).long(), num_classes=y_dim)
         for i in range(0, num_inputs):
-          (_, _, x_dim) = sampled_distrs[i].shape
-          result_diff = (result_vec-argmax_vec).unsqueeze(3).repeat(1,1,1,x_dim)
-          sampled_diff = sampled_distrs[i].unsqueeze(2).repeat(1,1,y_dim,1)
-          jacobian.append(torch.mean(result_diff/sampled_diff, dim=0))
+            result_distr = result_vec.unsqueeze(3).repeat(1,1,1,x_dims[i])
+            sampled_distr = torch.nn.functional.one_hot(torch.Tensor(to_compute_inputs)[:,:,i].long(), num_classes= x_dims[i]).float()
+            sampled_distr = sampled_distr - torch.nn.functional.softmax(sampled_distr, dim=2)
+            sampled_distr = sampled_distr.unsqueeze(2).repeat(1,1,y_dim,1)
+            jacobian.append(torch.mean(result_distr/sampled_distr, dim=1))
         
         return (result_vector, jacobian)
 
