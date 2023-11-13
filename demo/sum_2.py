@@ -190,7 +190,7 @@ if __name__ == "__main__":
   # Argument parser
   parser = ArgumentParser("mnist_sum_2")
   parser.add_argument("--n-epochs", type=int, default=10)
-  parser.add_argument("--batch-size", type=int, default=64)
+  parser.add_argument("--batch-size", type=int, default=16)
   parser.add_argument("--learning-rate", type=float, default=0.0001)
   parser.add_argument("--seed", type=int, default=1234)
   parser.add_argument("--jit", action="store_true")
