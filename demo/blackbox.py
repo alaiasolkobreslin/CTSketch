@@ -1,199 +1,107 @@
-from typing import *
 import torch
+import torch.nn.functional as F
+
+def finite_difference_2(fn, *inputs):
+  argmax_inputs, inputs_distr = [], []
+  k = 0
+  for x in inputs:
+    n = x.shape[1]
+    k += n
+    argmax_inputs.append(F.one_hot(x.argmax(dim=1), num_classes = n))
+    inputs_distr.append(x)
+
+  y_pred = fn(*tuple(argmax_inputs))
+
+  jacobian = []
+  for x, count in zip(inputs, range(len(inputs))):
+    batch_size, n = x.shape
+    jacobian_i = torch.zeros(batch_size, k, n)
+    for i in torch.arange(0,n):
+      inputs_i = argmax_inputs.copy()
+      inputs_i[count] = F.one_hot(i, num_classes=n).float().repeat(batch_size,1)
+      y = fn(*tuple(inputs_i)) - y_pred
+      
+      probs = argmax_inputs[1-count].argmax(dim=1)
+      for probs_i, batch_i in zip(probs, range(batch_size)):
+        freq = torch.where(probs==probs_i, 1, 0).sum()
+        prob = inputs_distr[1-count][:,probs_i].unsqueeze(1)/freq
+        jacobian_i[:,:,i] += y[batch_i].unsqueeze(0).repeat(batch_size, 1)*prob/n
+    jacobian.append(jacobian_i)
+
+  return tuple(jacobian)
+
+def finite_difference_3(fn, *inputs):
+  argmax_inputs, inputs_distr = [], []
+  k = 0
+  for x in inputs:
+    n = x.shape[1]
+    k += n
+    argmax_inputs.append(F.one_hot(x.argmax(dim=1), num_classes = n))
+    inputs_distr.append(x)
+
+  y_pred = fn(*tuple(argmax_inputs))
+
+  jacobian = []
+  for x, count in zip(inputs, range(len(inputs))):
+    batch_size, n = x.shape
+    jacobian_i = torch.zeros(batch_size, k, n)
+    for i in torch.arange(0,n):
+      inputs_i = argmax_inputs.copy()
+      inputs_i[count] = F.one_hot(i, num_classes=n).float().repeat(batch_size,1)
+      y = fn(*tuple(inputs_i)) - y_pred
+      
+      argmax_i, inputs_distr_i = [], []
+      for t in range(len(inputs)):
+        if t != count:
+          argmax_i.append(argmax_inputs[t].argmax(dim=1))
+          inputs_distr_i.append(inputs_distr[t])
+      
+      for b, c, indices in zip(argmax_i[0], argmax_i[1], range(argmax_i[0].shape[0])):
+        freq_b = torch.where(argmax_i[0]==b, 1, 0)
+        freq_c = torch.where(argmax_i[1]==c, 1, 0)
+        freq = (freq_b * freq_c).sum()
+        prob_b = inputs_distr_i[0][:,b].unsqueeze(1)
+        prob_c = inputs_distr_i[1][:,c].unsqueeze(1)
+        jacobian_i[:,:,i] += y[indices].unsqueeze(0).repeat(batch_size, 1)*prob_b*prob_c/(n*freq)
+    jacobian.append(jacobian_i)
+  return tuple(jacobian)
+
+class BlackBoxSum2(torch.autograd.Function):
+  def sum_2(xa, xb):
+    y_dim = xa.shape[1] + xb.shape[1]
+    y_pred = torch.argmax(xa, dim=1) + torch.argmax(xb, dim=1)
+    return F.one_hot(y_pred, num_classes = y_dim).float()
+
+  @staticmethod
+  def forward(ctx, *inputs):
+      ctx.save_for_backward(*inputs)
+      output = BlackBoxSum2.sum_2(*inputs)
+      return output
+
+  @staticmethod
+  def backward(ctx, grad_output):
+      inputs = ctx.saved_tensors
+      js = finite_difference_2(BlackBoxSum2.sum_2, *inputs)
+      js = [grad_output.unsqueeze(1).matmul(j).squeeze(1) for j in js]
+      return tuple(js)
 
 
-RESERVED_FAILURE = "__RESERVED_FAILURE__"
+class BlackBoxSum3(torch.autograd.Function):
 
+  def sum_3(xa, xb, xc):
+    y_dim = xa.shape[1] + xb.shape[1] + xc.shape[1]
+    y_pred = torch.argmax(xa, dim=1) + torch.argmax(xb, dim=1) + torch.argmax(xc, dim=1)
+    return F.one_hot(y_pred, num_classes = y_dim).float()
 
-class ListInput:
-    """
-    The struct holding vectorized list input
-    """
-    def __init__(self, tensor: torch.Tensor, lengths: List[int]):
-        self.tensor = tensor
-        self.lengths = lengths
+  @staticmethod
+  def forward(ctx, *inputs):
+      ctx.save_for_backward(*inputs)
+      output = BlackBoxSum3.sum_3(*inputs)
+      return output
 
-    def gather(self, dim: int, indices: torch.Tensor):
-        result = self.tensor.gather(dim + 1, indices)
-        return torch.prod(result, dim=1)
-
-
-class InputMapping:
-    def __init__(self): pass
-
-    def sample(self, input: Any, sample_count: int) -> Tuple[torch.Tensor, List[Any]]: pass
-
-
-class ListInputMapping(InputMapping):
-    def __init__(self, max_length: int, element_input_mapping: InputMapping):
-        self.max_length = max_length
-        self.element_input_mapping = element_input_mapping
-
-    def sample(self, list_input: ListInput, sample_count: int) -> Tuple[torch.Tensor, List[List[Any]]]:
-        # Sample the elements
-        batch_size, list_length = list_input.tensor.shape[0], list_input.tensor.shape[1]
-        assert list_length == self.max_length, "inputs must have the same number of columns as the max length"
-        flattened = list_input.tensor.reshape((batch_size * list_length, -1))
-        sampled_indices, sampled_elements = self.element_input_mapping.sample(flattened, sample_count)
-
-        # Reshape the sampled elements
-        result_sampled_elements = []
-        for i in range(batch_size):
-            curr_batch = []
-            for j in range(sample_count):
-                curr_elem = []
-                for k in range(list_input.lengths[i]):
-                    curr_elem.append(sampled_elements[i * list_length + k][j])
-                curr_batch.append(curr_elem)
-            result_sampled_elements.append(curr_batch)
-
-        # Reshape the sampled indices
-        sampled_indices_original_shape = tuple(sampled_indices.shape[1:])
-        sampled_indices = sampled_indices.reshape(batch_size, list_length, *sampled_indices_original_shape)
-
-        return (sampled_indices, result_sampled_elements)
-
-
-class DiscreteInputMapping(InputMapping):
-    def __init__(self, elements: List[Any]):
-        self.elements = elements
-
-    def sample(self, inputs: torch.Tensor, sample_count: int) -> Tuple[torch.Tensor, List[Any]]:
-        num_input_elements = inputs.shape[1]
-        assert num_input_elements == len(self.elements), "inputs must have the same number of columns as the number of elements"
-        distrs = torch.distributions.Categorical(probs=inputs)
-        sampled_indices = distrs.sample((sample_count,)).transpose(0, 1)
-        sampled_elements = [[self.elements[i] for i in sampled_indices_for_task_i] for sampled_indices_for_task_i in sampled_indices]
-        return (sampled_indices, sampled_elements)
-
-
-class OutputMapping:
-    def __init__(self): pass
-
-    def vectorize(self, results: List, result_probs: torch.Tensor):
-        """
-        An output mapping should implement this function to vectorize the results and result probabilities
-        """
-        pass
-
-
-class DiscreteOutputMapping(OutputMapping):
-    def __init__(self, elements: List[Any]):
-        self.elements = elements
-        self.element_indices = {e: i for (i, e) in enumerate(elements)}
-
-    def vectorize(self, results: List, result_probs: torch.Tensor) -> torch.Tensor:
-        batch_size, sample_count = result_probs.shape
-        result_tensor = torch.zeros((batch_size, len(self.elements)))
-        for i in range(batch_size):
-            for j in range(sample_count):
-                # print(results[i][j])
-                if results[i][j] != RESERVED_FAILURE:
-                    result_tensor[i, self.element_indices[results[i][j]]] += result_probs[i, j]
-        return torch.nn.functional.normalize(result_tensor, dim=1)
-
-
-class UnknownDiscreteOutputMapping(OutputMapping):
-    def __init__(self):
-        pass
-
-    def vectorize(self, results: List, result_probs: torch.Tensor) -> torch.Tensor:
-        batch_size, sample_count = result_probs.shape
-
-        # Get the unique elements
-        elements = list(set([elem for batch in results for elem in batch if elem != RESERVED_FAILURE]))
-        element_indices = {e: i for (i, e) in enumerate(elements)}
-
-        # Vectorize the results
-        result_tensor = torch.zeros((batch_size, len(elements)))
-        for i in range(batch_size):
-            for j in range(sample_count):
-                if results[i][j] != RESERVED_FAILURE:
-                    result_tensor[i, element_indices[results[i][j]]] += result_probs[i, j]
-        result_tensor = torch.nn.functional.normalize(result_tensor, dim=1)
-
-        # Return the elements mapping and also the result probability tensor
-        return (elements, result_tensor)
-
-
-class BlackBoxFunction(torch.nn.Module):
-    def __init__(
-            self,
-            function: Callable,
-            input_mappings: Tuple[InputMapping],
-            output_mapping: OutputMapping,
-            sample_count: int = 100):
-        super(BlackBoxFunction, self).__init__()
-        assert type(input_mappings) == tuple, "input_mappings must be a tuple"
-        self.function = function
-        self.input_mappings = input_mappings
-        self.output_mapping = output_mapping
-        self.sample_count = sample_count
-
-    def forward(self, *inputs):
-        num_inputs = len(inputs)
-        assert num_inputs == len(self.input_mappings), "inputs and input_mappings must have the same length"
-
-        # Get the batch size
-        batch_size = self.get_batch_size(inputs[0])
-        for i in range(1, num_inputs):
-            assert batch_size == self.get_batch_size(inputs[i]), "all inputs must have the same batch size"
-
-        # Prepare the inputs to the black-box function
-        to_compute_inputs, sampled_indices = [], []
-        for (input_i, input_mapping_i) in zip(inputs, self.input_mappings):
-            sampled_indices_i, sampled_elements_i = input_mapping_i.sample(input_i, sample_count=self.sample_count)
-            to_compute_inputs.append(sampled_elements_i)
-            sampled_indices.append(sampled_indices_i)
-        to_compute_inputs = self.zip_batched_inputs(to_compute_inputs)
-
-        # Get the outputs from the black-box function
-        results = self.invoke_function_on_batched_inputs(to_compute_inputs)
-
-        # Aggregate the probabilities
-        result_probs = torch.ones((batch_size, self.sample_count))
-        for (input_tensor, sampled_index) in zip(inputs, sampled_indices):
-            result_probs *= input_tensor.gather(1, sampled_index)
-
-        # Vectorize the results back into a tensor
-        result_vector = self.output_mapping.vectorize(results, result_probs)
-        (_, y_dim) = result_vector.shape
-        x_dims = [10, 10]
-
-        # compute Jacobian
-        jacobian = []
-        result_vec = torch.nn.functional.one_hot(torch.Tensor(results).long(), num_classes=y_dim)
-        for i in range(0, num_inputs):
-            result_distr = result_vec.unsqueeze(3).repeat(1,1,1,x_dims[i])
-            sampled_distr = torch.nn.functional.one_hot(torch.Tensor(to_compute_inputs)[:,:,i].long(), num_classes= x_dims[i]).float()
-            sampled_distr = sampled_distr - torch.nn.functional.softmax(sampled_distr, dim=2)
-            sampled_distr = sampled_distr.unsqueeze(2).repeat(1,1,y_dim,1)
-            jacobian.append(torch.mean(result_distr/sampled_distr, dim=1))
-        
-        return (result_vector, jacobian)
-
-    def get_batch_size(self, input: Any):
-        if type(input) == torch.Tensor:
-            return input.shape[0]
-        elif type(input) == ListInput:
-            return len(input.lengths)
-        raise Exception("Unknown input type")
-
-    def zip_batched_inputs(self, batched_inputs):
-        result = [list(zip(*lists)) for lists in zip(*batched_inputs)]
-        return result
-
-    def invoke_function_on_inputs(self, inputs):
-        """
-        Given a list of inputs, invoke the black-box function on each of them.
-        Note that function may fail on some inputs, and we skip those.
-        """
-        for r in inputs:
-            try:
-                y = self.function(*r)
-                yield y
-            except:
-                yield RESERVED_FAILURE
-
-    def invoke_function_on_batched_inputs(self, batched_inputs):
-        return [list(self.invoke_function_on_inputs(batch)) for batch in batched_inputs]
+  @staticmethod
+  def backward(ctx, grad_output):
+      inputs = ctx.saved_tensors
+      js = finite_difference_3(BlackBoxSum3.sum_3, *inputs)
+      js = [grad_output.unsqueeze(1).matmul(j).squeeze(1) for j in js]
+      return tuple(js)
