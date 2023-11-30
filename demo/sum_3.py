@@ -106,13 +106,18 @@ class MNISTNet(nn.Module):
     x = self.fc2(x)
     return F.softmax(x, dim=1)
 
+def sum_3(xa, xb, xc):
+  y_dim = xa.shape[1] + xb.shape[1] + xc.shape[1]
+  y_pred = torch.argmax(xa, dim=1) + torch.argmax(xb, dim=1) + torch.argmax(xc, dim=1)
+  return F.one_hot(y_pred, num_classes = y_dim).float()
+
 class MNISTSum3Net(nn.Module):
   def __init__(self):
     super(MNISTSum3Net, self).__init__()
 
     # MNIST Digit Recognition Network
     self.mnist_net = MNISTNet()
-    self.sum_3 = blackbox.BlackBoxSum3.apply
+    self.bbox = blackbox.BlackBoxFunction.apply
 
   def forward(self, x: Tuple[torch.Tensor, torch.Tensor]):
     (a_imgs, b_imgs, c_imgs) = x
@@ -123,7 +128,8 @@ class MNISTSum3Net(nn.Module):
     c_distrs = self.mnist_net(c_imgs)
 
     # Then execute the reasoning module; the result is a size 19 tensor
-    return self.sum_3(a_distrs, b_distrs, c_distrs) # Tensor 64 x 19
+    blackbox.BlackBoxFunction.fn = sum_3
+    return self.bbox(a_distrs, b_distrs, c_distrs) # Tensor 64 x 19
 
 
 class Trainer():
@@ -176,8 +182,8 @@ if __name__ == "__main__":
   # Argument parser
   parser = ArgumentParser("mnist_sum_3")
   parser.add_argument("--n-epochs", type=int, default=20)
-  parser.add_argument("--batch-size", type=int, default=100)
-  parser.add_argument("--learning-rate", type=float, default=0.0002)
+  parser.add_argument("--batch-size", type=int, default=128)
+  parser.add_argument("--learning-rate", type=float, default=0.0004)
   parser.add_argument("--seed", type=int, default=1234)
   parser.add_argument("--jit", action="store_true")
   parser.add_argument("--dispatch", type=str, default="parallel")
