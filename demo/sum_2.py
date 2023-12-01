@@ -12,6 +12,7 @@ from argparse import ArgumentParser
 from tqdm import tqdm
 
 import blackbox
+import task_program as task_program
 
 mnist_img_transform = torchvision.transforms.Compose([
   torchvision.transforms.ToTensor(),
@@ -104,11 +105,6 @@ class MNISTNet(nn.Module):
     x = self.fc2(x)
     return F.softmax(x, dim=1)
 
-def sum_2(xa, xb):
-  y_dim = xa.shape[1] + xb.shape[1]
-  y_pred = torch.argmax(xa, dim=1) + torch.argmax(xb, dim=1)
-  return F.one_hot(y_pred, num_classes = y_dim).float()
-
 class MNISTSum2Net(nn.Module):
   def __init__(self):
     super(MNISTSum2Net, self).__init__()
@@ -125,7 +121,7 @@ class MNISTSum2Net(nn.Module):
     b_distrs = self.mnist_net(b_imgs) # Tensor 64 x 10
 
     # Then execute the reasoning module; the result is a size 19 tensor
-    blackbox.BlackBoxFunction.fn = sum_2
+    blackbox.BlackBoxFunction.fn = task_program.sum_2
     return self.bbox(a_distrs, b_distrs) # Tensor 64 x 19
 
 
