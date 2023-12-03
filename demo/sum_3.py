@@ -45,12 +45,12 @@ class MNISTSum3Dataset(torch.utils.data.Dataset):
     return int(len(self.mnist_dataset) / 3)
 
   def __getitem__(self, idx):
-    # Get two data points
+    # Get three data points
     (a_img, a_digit) = self.mnist_dataset[self.index_map[idx * 3]]
     (b_img, b_digit) = self.mnist_dataset[self.index_map[idx * 3 + 1]]
     (c_img, c_digit) = self.mnist_dataset[self.index_map[idx * 3 + 2]]
 
-    # Each data has two images and the GT is the sum of two digits
+    # Each data has three images and the GT is the sum of three digits
     return (a_img, b_img, c_img, a_digit + b_digit + c_digit)
 
   @staticmethod
@@ -118,14 +118,14 @@ class MNISTSum3Net(nn.Module):
   def forward(self, x: Tuple[torch.Tensor, torch.Tensor]):
     (a_imgs, b_imgs, c_imgs) = x
 
-    # First recognize the two digits
+    # First recognize the three digits
     a_distrs = self.mnist_net(a_imgs) # Tensor 64 x 10
     b_distrs = self.mnist_net(b_imgs) # Tensor 64 x 10
     c_distrs = self.mnist_net(c_imgs)
 
-    # Then execute the reasoning module; the result is a size 19 tensor
+    # Then execute the reasoning module; the result is a size 28 tensor
     blackbox.BlackBoxFunction.fn = task_program.sum_3
-    return self.bbox(a_distrs, b_distrs, c_distrs) # Tensor 64 x 19
+    return self.bbox(a_distrs, b_distrs, c_distrs) # Tensor 64 x 28
 
 
 class Trainer():
