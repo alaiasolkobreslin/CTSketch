@@ -113,7 +113,13 @@ class MNISTSum3Net(nn.Module):
 
     # MNIST Digit Recognition Network
     self.mnist_net = MNISTNet()
-    self.bbox = blackbox.BlackBoxFunction.apply
+    self.bbox = blackbox.BlackBox(
+      task_program.sum_3,
+      (blackbox.DiscreteInputMapping(list(range(10))), 
+       blackbox.DiscreteInputMapping(list(range(10))),
+       blackbox.DiscreteInputMapping(list(range(10)))),
+      blackbox.DiscreteOutputMapping(list(range(28)))
+    )
 
   def forward(self, x: Tuple[torch.Tensor, torch.Tensor]):
     (a_imgs, b_imgs, c_imgs) = x
@@ -124,7 +130,6 @@ class MNISTSum3Net(nn.Module):
     c_distrs = self.mnist_net(c_imgs)
 
     # Then execute the reasoning module; the result is a size 28 tensor
-    blackbox.BlackBoxFunction.fn = task_program.sum_3
     return self.bbox(a_distrs, b_distrs, c_distrs) # Tensor 64 x 28
 
 
@@ -144,6 +149,8 @@ class Trainer():
 
   def train_epoch(self, epoch):
     self.network.train()
+    num_items = 0
+    total_correct = 0
     iter = tqdm(self.train_loader, total=len(self.train_loader))
     for (data, target) in iter:
       self.optimizer.zero_grad()
@@ -151,7 +158,10 @@ class Trainer():
       loss = self.loss(output, target)
       loss.backward()
       self.optimizer.step()
-      iter.set_description(f"[Train Epoch {epoch}] Loss: {loss.item():.4f} Accuracy: {(output.argmax(dim=1)==target).float().mean():.2f}")
+      total_correct += (output.argmax(dim=1)==target).float().sum()
+      num_items += output.shape[0]
+      correct_perc = 100. * total_correct / num_items
+      iter.set_description(f"[Train Epoch {epoch}] Loss: {loss.item():.4f} Overall Accuracy: {correct_perc:.4f}%")
 
   def test_epoch(self, epoch):
     self.network.eval()
@@ -178,8 +188,8 @@ if __name__ == "__main__":
   # Argument parser
   parser = ArgumentParser("mnist_sum_3")
   parser.add_argument("--n-epochs", type=int, default=20)
-  parser.add_argument("--batch-size", type=int, default=128)
-  parser.add_argument("--learning-rate", type=float, default=0.0004)
+  parser.add_argument("--batch-size", type=int, default=32)
+  parser.add_argument("--learning-rate", type=float, default=0.0001)
   parser.add_argument("--seed", type=int, default=1234)
   parser.add_argument("--jit", action="store_true")
   parser.add_argument("--dispatch", type=str, default="parallel")
