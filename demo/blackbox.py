@@ -81,7 +81,7 @@ def finite_difference(fn, output, *inputs):
     probs_n = torch.cat((probs[:n],probs[n+1:]))
     freqs_n = torch.cat((freqs[:n],freqs[n+1:]))
 
-    for i in torch.multinomial(torch.ones(input_dim),10).sort().values:
+    for i in torch.multinomial(torch.ones(input_dim),input_dim).sort().values:
       # Perturb the nth input to be i
       inputs_i = argmax_inputs.copy()
       inputs_i[n] = F.one_hot(i, num_classes=input_dim).float().repeat(batch_size,1) 

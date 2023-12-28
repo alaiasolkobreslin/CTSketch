@@ -12,7 +12,7 @@ from argparse import ArgumentParser
 from tqdm import tqdm
 
 import blackbox
-import task_program as task_program
+import task_program
 
 mnist_img_transform = torchvision.transforms.Compose([
   torchvision.transforms.ToTensor(),
