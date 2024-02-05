@@ -132,6 +132,9 @@ class BlackBox(torch.nn.Module):
     self.input_mappings = input_mappings
     self.output_mapping = output_mapping
   
+  def set_bbox_function(self):
+    BlackBoxFunction.fn = self.dec_fn
+
   def forward(self, *inputs):
     num_inputs = len(inputs)
     assert num_inputs == len(self.input_mappings), "inputs and input_mappings must have the same length"
@@ -141,9 +144,13 @@ class BlackBox(torch.nn.Module):
     for i in range(1, num_inputs):
       assert batch_size == self.get_batch_size(inputs[i]), "all inputs must have the same batch size"
 
-    BlackBoxFunction.fn = self.dec_fn
+    self.set_bbox_function()
+    output = BlackBoxFunction.apply(*inputs)
 
-    return BlackBoxFunction.apply(*inputs)
+    if output.requires_grad:
+      output.register_hook(lambda _: self.set_bbox_function())
+
+    return output
 
   def get_batch_size(self, input: Any):
     if type(input) == torch.Tensor:
