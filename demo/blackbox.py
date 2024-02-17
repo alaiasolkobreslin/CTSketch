@@ -55,12 +55,45 @@ class UnknownDiscreteOutputMapping(OutputMapping):
     def __init__(self):
         pass
 
-def finite_difference(fn, output, *inputs):
+def decorated_fn(fn, input_mappings, output_mapping, *inputs):
+  def zip_batched_inputs(batched_inputs):
+    result = [list(zip(*lists)) for lists in zip(*batched_inputs)]
+    return result
+  
+  def invoke_function_on_inputs(inputs):
+    """
+      Given a list of inputs, invoke the black-box function on each of them.
+      Note that function may fail on some inputs, and we skip those.
+    """
+    for r in inputs:
+      try:
+        y = fn(*r)
+        yield y
+      except:
+        yield RESERVED_FAILURE
+
+  def invoke_function_on_batched_inputs(batched_inputs):
+      return [list(invoke_function_on_inputs(batch)) for batch in batched_inputs]
+  
+  # Prepare the inputs to the black-box function  
+  to_compute_inputs = []
+  for (input_i, input_mappings_i) in zip(inputs, input_mappings):
+    argmax_index_i = input_i.argmax(dim=1).unsqueeze(-1)
+    sampled_element_i = [[input_mappings_i.get_elements(i) for i in argmax_indices_for_task_i] for argmax_indices_for_task_i in argmax_index_i]
+    to_compute_inputs.append(sampled_element_i)
+  to_compute_inputs = zip_batched_inputs(to_compute_inputs)
+
+  # Get the outputs from the black-box function
+  results = invoke_function_on_batched_inputs(to_compute_inputs)
+  output = output_mapping.vectorize(results)
+
+  return F.softmax(output, dim=1)
+
+def finite_difference(fn, input_mappings, output_mapping, output, *inputs):
+  k = 2
+
   # Prepare the inputs to the black-box function
-  argmax_inputs = []
-  for input_i in inputs: 
-    ys = torch.multinomial(torch.ones(input_i.shape[1]), 1)
-    argmax_inputs.append(F.one_hot(input_i.topk(dim=1,k=input_i.shape[1]).indices[:,ys], num_classes=input_i.shape[1]).squeeze(1))
+  argmax_inputs = [F.one_hot(input_i.argmax(dim=1), num_classes=input_i.shape[1]).squeeze(1) for input_i in inputs]
 
   # Compute the probability and the frequency of the inputs
   batch_size, num_inputs = argmax_inputs[0].shape[0], len(argmax_inputs)
@@ -73,7 +106,7 @@ def finite_difference(fn, output, *inputs):
 
   # Compute the jacobian for each input
   jacobian = []
-  for input_i, n in zip(inputs, range(num_inputs)):
+  for n, input_i in enumerate(inputs):
     input_dim = input_i.shape[1]
     jacobian_i = torch.zeros(batch_size, output.shape[1], input_dim)
     
@@ -81,43 +114,51 @@ def finite_difference(fn, output, *inputs):
     probs_n = torch.cat((probs[:n],probs[n+1:]))
     freqs_n = torch.cat((freqs[:n],freqs[n+1:]))
 
-    for i in torch.multinomial(torch.ones(input_dim),input_dim).sort().values:
+    for i in torch.multinomial(torch.ones(input_dim),k).sort().values:
       # Perturb the nth input to be i
       inputs_i = argmax_inputs.copy()
       inputs_i[n] = F.one_hot(i, num_classes=input_dim).float().repeat(batch_size,1) 
       
       # Compute the corresponding change in the output
-      y = fn(*tuple(inputs_i)) - output  
+      y = decorated_fn(fn, input_mappings, output_mapping, *tuple(inputs_i)) - output  
       
       # Update the jacobian, weighted by the probability of the unchanged inputs
       for batch_i in range(batch_size):
         probs_i = probs_n[:,batch_i,:].prod(dim=0)
         freqs_i = freqs_n[:,batch_i,:].prod(dim=0).sum()
-        jacobian_i[:,:,i] += y[batch_i].unsqueeze(0).repeat(batch_size,1)*(probs_i.unsqueeze(1))/(input_dim*freqs_i)
+        jacobian_i[:,:,i] += y[batch_i].unsqueeze(0).repeat(batch_size,1)*(probs_i.unsqueeze(1))/(input_dim)
     
     jacobian.append(jacobian_i)
   
   return tuple(jacobian)
 
 class BlackBoxFunction(torch.autograd.Function):
-  # Placeholder function; to be initialized before calling
-  fn = lambda x : x
+  # Placeholders; to be initialized before calling
+  fn = []
+  input_mappings = []
+  output_mapping = []
 
   @staticmethod
   def forward(ctx, *inputs):
-    output = BlackBoxFunction.fn(*inputs)
+    output = decorated_fn(BlackBoxFunction.fn, BlackBoxFunction.input_mappings, BlackBoxFunction.output_mapping, *inputs)
 
     # To use during backward propagation
     ctx.save_for_backward(*inputs, output)
+    ctx.bbox_fn = BlackBoxFunction.fn
+    ctx.input_mappings = BlackBoxFunction.input_mappings
+    ctx.output_mapping = BlackBoxFunction.output_mapping
     return output
 
   @staticmethod
   def backward(ctx, grad_output):
     inputs, output = ctx.saved_tensors[:-1], ctx.saved_tensors[-1]
-    js = finite_difference(BlackBoxFunction.fn, output, *inputs)
+    bbox_fn = ctx.bbox_fn
+    input_mappings = ctx.input_mappings
+    output_mapping = ctx.output_mapping
+    js = finite_difference(bbox_fn, input_mappings, output_mapping, output, *inputs)
 
-    # L1 normalization
-    js = [F.normalize(grad_output.unsqueeze(1).matmul(j).squeeze(1), dim=1, p=1) for j in js]
+    # normalization
+    js = [F.normalize(grad_output.unsqueeze(1).matmul(j).squeeze(1), dim=1, p=2) for j in js]
     return tuple(js)
   
 class BlackBox(torch.nn.Module):
@@ -132,8 +173,10 @@ class BlackBox(torch.nn.Module):
     self.input_mappings = input_mappings
     self.output_mapping = output_mapping
   
-  def set_bbox_function(self):
-    BlackBoxFunction.fn = self.dec_fn
+  def configure_bbox_function(self):
+    BlackBoxFunction.fn = self.function
+    BlackBoxFunction.output_mapping = self.output_mapping
+    BlackBoxFunction.input_mappings = self.input_mappings
 
   def forward(self, *inputs):
     num_inputs = len(inputs)
@@ -144,11 +187,10 @@ class BlackBox(torch.nn.Module):
     for i in range(1, num_inputs):
       assert batch_size == self.get_batch_size(inputs[i]), "all inputs must have the same batch size"
 
-    self.set_bbox_function()
-    output = BlackBoxFunction.apply(*inputs)
-
-    if output.requires_grad:
-      output.register_hook(lambda _: self.set_bbox_function())
+    # pass in function, input mappings, output mapping
+    self.configure_bbox_function()
+    # gumbel_inputs = [F.gumbel_softmax(input_i, tau=1) for input_i in inputs]
+    output = BlackBoxFunction.apply(*tuple(inputs))
 
     return output
 
@@ -158,37 +200,3 @@ class BlackBox(torch.nn.Module):
     elif type(input) == ListInput:
       return len(input.lengths)
     raise Exception("Unknown input type")
-
-  def zip_batched_inputs(self, batched_inputs):
-    result = [list(zip(*lists)) for lists in zip(*batched_inputs)]
-    return result
-  
-  def invoke_function_on_inputs(self, inputs):
-    """
-      Given a list of inputs, invoke the black-box function on each of them.
-      Note that function may fail on some inputs, and we skip those.
-    """
-    for r in inputs:
-      try:
-        y = self.function(*r)
-        yield y
-      except:
-        yield RESERVED_FAILURE
-
-  def invoke_function_on_batched_inputs(self, batched_inputs):
-      return [list(self.invoke_function_on_inputs(batch)) for batch in batched_inputs]
-
-  def dec_fn(self, *inputs):
-    # Prepare the inputs to the black-box functionBlackBoxFunction.fn = self.function    
-    to_compute_inputs = []
-    for (input_i, input_mappings_i) in zip(inputs, self.input_mappings):
-      argmax_index_i = input_i.argmax(dim=1).unsqueeze(-1)
-      sampled_element_i = [[input_mappings_i.get_elements(i) for i in argmax_indices_for_task_i] for argmax_indices_for_task_i in argmax_index_i]
-      to_compute_inputs.append(sampled_element_i)
-    to_compute_inputs = self.zip_batched_inputs(to_compute_inputs)
-
-    # Get the outputs from the black-box function
-    results = self.invoke_function_on_batched_inputs(to_compute_inputs)
-    output = self.output_mapping.vectorize(results)
-
-    return output
