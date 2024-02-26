@@ -4,13 +4,31 @@ from typing import *
 
 RESERVED_FAILURE = "__RESERVED_FAILURE__"
 
-class ListInput:
+class Input:
+  def __init__(self, tensor: torch.Tensor):
+    self.tensor = tensor
+
+  def argmax(self, dim: int):
+    return self.tensor.argmax(dim=dim)
+  
+  def combine(self, elements, i):
+    return elements
+
+
+class ListInput(Input):
     """
     The struct holding vectorized list input
     """
     def __init__(self, tensor: torch.Tensor, lengths: List[int]):
         self.tensor = tensor
         self.lengths = lengths
+
+    def argmax(self, dim: int):
+        return self.tensor.argmax(dim=dim+1)
+    
+    def combine(self, elements, i):
+      return ''.join([element[0] for element in elements][:self.lengths[i]])
+
 
 class InputMapping:
   def __init__(self): pass
@@ -21,6 +39,23 @@ class ListInputMapping(InputMapping):
   def __init__(self, max_length: int, element_input_mapping: InputMapping):
     self.max_length = max_length
     self.element_input_mapping = element_input_mapping  
+
+  def get_elements(self, idx):
+    # return [self.element_input_mapping.get_elements(i) for i in idx]
+    return self.element_input_mapping.get_elements(idx.item())
+
+  
+class HWFInputMapping(InputMapping):
+  def __init__(self, max_length: int, element_input_mapping: InputMapping):
+    self.max_length = max_length
+    self.element_input_mapping = element_input_mapping  
+
+  def get_elements(self, idx):
+    # return [self.element_input_mapping.get_elements(i) for i in idx]
+    return [self.element_input_mapping.get_elements(idx.item())]
+  
+  def combine(self, elements):
+    return ''.join(e[0] for e in elements)
 
 class DiscreteInputMapping(InputMapping):
   def __init__(self, elements: List[Any]):
@@ -54,11 +89,31 @@ class DiscreteOutputMapping(OutputMapping):
 class UnknownDiscreteOutputMapping(OutputMapping):
     def __init__(self):
         pass
+    
+    def vectorize(self, results: List) -> torch.Tensor:
+      # Get the unique elements
+      batch_size = len(results)
+
+      elements = list(set([elem for batch in results for elem in batch if elem != RESERVED_FAILURE]))
+      element_indices = {e: i for (i, e) in enumerate(elements)}
+  
+      # If there is no element being derived...
+      if len(elements) == 0:
+        # We return a single fallback value
+        # result_tensor = torch.zeros((batch_size, 1), requires_grad=True)
+        result_tensor = torch.zeros((1, 1), requires_grad=True)
+        return (result_tensor, element_indices)
+
+      result_tensor = torch.zeros((batch_size, len(elements)))
+      for i in range(batch_size):
+        result = results[i][0]
+        if result != RESERVED_FAILURE:
+          result_tensor[i, element_indices[result]].data += 1
+      return (result_tensor, element_indices)
 
 def decorated_fn(fn, input_mappings, output_mapping, *inputs):
   def zip_batched_inputs(batched_inputs):
-    result = [list(zip(*lists)) for lists in zip(*batched_inputs)]
-    return result
+    return [(input,) for lst in batched_inputs for input in lst]
   
   def invoke_function_on_inputs(inputs):
     """
@@ -80,14 +135,15 @@ def decorated_fn(fn, input_mappings, output_mapping, *inputs):
   for (input_i, input_mappings_i) in zip(inputs, input_mappings):
     argmax_index_i = input_i.argmax(dim=1).unsqueeze(-1)
     sampled_element_i = [[input_mappings_i.get_elements(i) for i in argmax_indices_for_task_i] for argmax_indices_for_task_i in argmax_index_i]
+    sampled_element_i = [input_i.combine(i, j) for (j,i) in enumerate(sampled_element_i)]
     to_compute_inputs.append(sampled_element_i)
   to_compute_inputs = zip_batched_inputs(to_compute_inputs)
 
   # Get the outputs from the black-box function
   results = invoke_function_on_batched_inputs(to_compute_inputs)
-  output = output_mapping.vectorize(results)
+  output, mapping = output_mapping.vectorize(results)
 
-  return F.softmax(output, dim=1)
+  return F.softmax(output, dim=1), mapping
 
 def finite_difference(fn, input_mappings, output_mapping, output, *inputs):
   k = 2
@@ -140,18 +196,18 @@ class BlackBoxFunction(torch.autograd.Function):
 
   @staticmethod
   def forward(ctx, *inputs):
-    output = decorated_fn(BlackBoxFunction.fn, BlackBoxFunction.input_mappings, BlackBoxFunction.output_mapping, *inputs)
+    output, mapping = decorated_fn(BlackBoxFunction.fn, BlackBoxFunction.input_mappings, BlackBoxFunction.output_mapping, *inputs)
 
     # To use during backward propagation
-    ctx.save_for_backward(*inputs, output)
+    ctx.save_for_backward(*inputs, output, mapping)
     ctx.bbox_fn = BlackBoxFunction.fn
     ctx.input_mappings = BlackBoxFunction.input_mappings
     ctx.output_mapping = BlackBoxFunction.output_mapping
-    return output
+    return output, mapping
 
   @staticmethod
   def backward(ctx, grad_output):
-    inputs, output = ctx.saved_tensors[:-1], ctx.saved_tensors[-1]
+    inputs, output, mapping = ctx.saved_tensors[:-2], ctx.saved_tensors[-2], ctx.saved_tensors[-1]
     bbox_fn = ctx.bbox_fn
     input_mappings = ctx.input_mappings
     output_mapping = ctx.output_mapping
@@ -199,4 +255,4 @@ class BlackBox(torch.nn.Module):
       return input.shape[0]
     elif type(input) == ListInput:
       return len(input.lengths)
-    raise Exception("Unknown input type")
+    raise Exception(f"Unknown input type: {type(input)}")

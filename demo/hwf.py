@@ -13,6 +13,9 @@ from PIL import Image
 
 import math
 
+import blackbox
+import task_program
+
 class HWFDataset(torch.utils.data.Dataset):
   def __init__(self, root: str, prefix: str, split: str):
     super(HWFDataset, self).__init__()
@@ -94,12 +97,21 @@ class HWFNet(nn.Module):
     # Symbol embedding
     self.symbol_cnn = SymbolNet()
 
+    # Blackbox
+    self.bbox = blackbox.BlackBox(
+      function=task_program.hwf,
+      input_mappings=(blackbox.HWFInputMapping(7, blackbox.DiscreteInputMapping(self.symbols)),), 
+      output_mapping=blackbox.UnknownDiscreteOutputMapping()
+    )
+
   def forward(self, img_seq, img_seq_len):
     batch_size, formula_length, _, _, _ = img_seq.shape
-    length = [[(l.item(),)] for l in img_seq_len]
+    length = [l.item() for l in img_seq_len]
     symbol = self.symbol_cnn(img_seq.flatten(start_dim=0, end_dim=1)).view(batch_size, formula_length, -1)
-    (mapping, probs) = self.eval_formula(symbol=symbol, length=length)
-    return ([v for (v,) in mapping], probs)
+    list_input = blackbox.ListInput(tensor=symbol, lengths=length)
+    return self.bbox(list_input)
+    # (mapping, probs) = self.eval_formula(symbol=symbol, length=length)
+    # return ([v for (v,) in mapping], probs)
 
 
 class Trainer():
@@ -118,44 +130,63 @@ class Trainer():
     result = abs(a - b) < threshold
     return result
 
+  def loss(self, output, ground_truth):
+    (_, dim) = output.shape
+    gt = torch.stack([torch.tensor([1.0 if i == t else 0.0 for i in range(dim)]) for t in ground_truth])
+    return F.binary_cross_entropy(output, gt)
+
   def train_epoch(self, epoch):
     self.network.train()
     num_items = 0
     train_loss = 0
     total_correct = 0
     iter = tqdm(self.train_loader, total=len(self.train_loader))
-    for (i, (img_seq, img_seq_len, label)) in enumerate(iter):
-      (output_mapping, y_pred) = self.network(img_seq.to(device), img_seq_len.to(device))
-      y_pred = y_pred.to("cpu")
-
-      # Normalize label format
-      batch_size, num_outputs = y_pred.shape
-      y = torch.tensor([1.0 if self.eval_result_eq(l.item(), m) else 0.0 for l in label for m in output_mapping]).view(batch_size, -1)
-
-      # Compute loss
-      loss = self.loss_fn(y_pred, y)
+    for (img_seq, img_seq_len, label) in iter:
+      batch_size = img_seq.shape[0]
       self.optimizer.zero_grad()
+      y_pred, mapping = self.network(img_seq.to(device), img_seq_len.to(device))
+      if not mapping:
+        continue
+      y_label = torch.tensor([1.0 if self.eval_result_eq(l.item(), m) else 0.0 for l in label for m in mapping]).view(batch_size, -1)
+      loss = self.loss(y_pred, y_label)
       loss.backward()
       self.optimizer.step()
-      if not math.isnan(loss.item()):
-        train_loss += loss.item()
+      total_correct += (y_pred.argmax(dim=1)==label).float().sum()
+      num_items += y_pred.shape[0]
+      correct_perc = 100. * total_correct / num_items
+      iter.set_description(f"[Train Epoch {epoch}] Loss: {loss.item():.4f} Overall Accuracy: {correct_perc:.4f}%")
 
-      # Collect index and compute accuracy
-      if num_outputs > 0:
-        y_index = torch.argmax(y, dim=1)
-        y_pred_index = torch.argmax(y_pred, dim=1)
-        correct_count = torch.sum(torch.where(torch.sum(y, dim=1) > 0, y_index == y_pred_index, torch.zeros(batch_size).bool())).item()
-      else:
-        correct_count = 0
+      # (output_mapping, y_pred) = self.network(img_seq.to(device), img_seq_len.to(device))
+      # y_pred = y_pred.to("cpu")
 
-      # Stats
-      num_items += batch_size
-      total_correct += correct_count
-      perc = 100. * total_correct / num_items
-      avg_loss = train_loss / (i + 1)
+      # # Normalize label format
+      # batch_size, num_outputs = y_pred.shape
+      # y = torch.tensor([1.0 if self.eval_result_eq(l.item(), m) else 0.0 for l in label for m in output_mapping]).view(batch_size, -1)
 
-      # Prints
-      iter.set_description(f"[Train Epoch {epoch}] Avg loss: {avg_loss:.4f}, Accuracy: {total_correct}/{num_items} ({perc:.2f}%)")
+      # # Compute loss
+      # loss = self.loss_fn(y_pred, y)
+      # self.optimizer.zero_grad()
+      # loss.backward()
+      # self.optimizer.step()
+      # if not math.isnan(loss.item()):
+      #   train_loss += loss.item()
+
+      # # Collect index and compute accuracy
+      # if num_outputs > 0:
+      #   y_index = torch.argmax(y, dim=1)
+      #   y_pred_index = torch.argmax(y_pred, dim=1)
+      #   correct_count = torch.sum(torch.where(torch.sum(y, dim=1) > 0, y_index == y_pred_index, torch.zeros(batch_size).bool())).item()
+      # else:
+      #   correct_count = 0
+
+      # # Stats
+      # num_items += batch_size
+      # total_correct += correct_count
+      # perc = 100. * total_correct / num_items
+      # avg_loss = train_loss / (i + 1)
+
+      # # Prints
+      # iter.set_description(f"[Train Epoch {epoch}] Avg loss: {avg_loss:.4f}, Accuracy: {total_correct}/{num_items} ({perc:.2f}%)")
 
   def test_epoch(self, epoch):
     self.network.eval()

@@ -7,6 +7,14 @@ def sum_3(xa, xb, xc):
 def sum_4(xa, xb, xc, xd):
   return xa + xb + xc + xd
 
+def hwf(symbols):
+    for i in range(len(symbols)):
+        if i % 2 == 0 and not symbols[i].isdigit():
+            raise Exception("Invalid HWF")
+        elif i % 2 == 1 and symbols[i] not in ['+', '*', '-', '/']:
+            raise Exception("Invalid HWF")
+    return eval(symbols)
+
 def classify_11(margin, shape, texture):
   if margin == 'serrate': return 'Ocimum basilicum'
   elif margin == 'indented': return 'Jatropha curcas'
