@@ -100,11 +100,10 @@ class UnknownDiscreteOutputMapping(OutputMapping):
       # If there is no element being derived...
       if len(elements) == 0:
         # We return a single fallback value
-        # result_tensor = torch.zeros((batch_size, 1), requires_grad=True)
         result_tensor = torch.zeros((1, 1), requires_grad=True)
         return (result_tensor, element_indices)
 
-      result_tensor = torch.zeros((batch_size, len(elements)))
+      result_tensor = torch.zeros((batch_size, len(elements)), requires_grad=True)
       for i in range(batch_size):
         result = results[i][0]
         if result != RESERVED_FAILURE:
@@ -112,6 +111,10 @@ class UnknownDiscreteOutputMapping(OutputMapping):
       return (result_tensor, element_indices)
 
 def decorated_fn(fn, input_mappings, output_mapping, *inputs):
+  
+  # recover inputs
+  inputs = [ListInput(input_i, lengths) if lengths else Input(input_i) for input_i, lengths in zip(inputs, BlackBoxFunction.lengths)]
+  
   def zip_batched_inputs(batched_inputs):
     return [(input,) for lst in batched_inputs for input in lst]
   
@@ -193,29 +196,39 @@ class BlackBoxFunction(torch.autograd.Function):
   fn = []
   input_mappings = []
   output_mapping = []
+  mapping = []
 
   @staticmethod
   def forward(ctx, *inputs):
     output, mapping = decorated_fn(BlackBoxFunction.fn, BlackBoxFunction.input_mappings, BlackBoxFunction.output_mapping, *inputs)
 
     # To use during backward propagation
-    ctx.save_for_backward(*inputs, output, mapping)
+    ctx.save_for_backward(*inputs, output)
     ctx.bbox_fn = BlackBoxFunction.fn
     ctx.input_mappings = BlackBoxFunction.input_mappings
     ctx.output_mapping = BlackBoxFunction.output_mapping
-    return output, mapping
+    ctx.mapping = mapping
+    BlackBoxFunction.mapping = mapping
+    return output
 
   @staticmethod
   def backward(ctx, grad_output):
-    inputs, output, mapping = ctx.saved_tensors[:-2], ctx.saved_tensors[-2], ctx.saved_tensors[-1]
-    bbox_fn = ctx.bbox_fn
-    input_mappings = ctx.input_mappings
-    output_mapping = ctx.output_mapping
-    js = finite_difference(bbox_fn, input_mappings, output_mapping, output, *inputs)
+    # inputs, output, mapping = ctx.saved_tensors[:-2], ctx.saved_tensors[-2], ctx.saved_tensors[-1]
+    # inputs, output = ctx.saved_tensors[:-1], ctx.saved_tensors[-1]
+    # bbox_fn = ctx.bbox_fn
+    # input_mappings = ctx.input_mappings
+    # output_mapping = ctx.output_mapping
+    # # js = finite_difference(bbox_fn, input_mappings, output_mapping, output, *inputs)
+    # js = []
 
-    # normalization
-    js = [F.normalize(grad_output.unsqueeze(1).matmul(j).squeeze(1), dim=1, p=2) for j in js]
-    return tuple(js)
+    # # # normalization
+    # js = [F.normalize(grad_output.unsqueeze(1).matmul(j).squeeze(1), dim=1, p=2) for j in js]
+    # return tuple(js)
+    # grad_inputs = torch.ones_like(inputs[0])  # or torch.ones_like(output)
+    # grad_output_dummy = torch.zeros_like(output)
+    # return (grad_inputs, grad_output_dummy)
+    # dummy_output = torch.zeros() # torch.Size([16, 19, 10])
+    return 
   
 class BlackBox(torch.nn.Module):
   def __init__(
@@ -228,6 +241,7 @@ class BlackBox(torch.nn.Module):
     self.function = function
     self.input_mappings = input_mappings
     self.output_mapping = output_mapping
+    self.mapping = None
   
   def configure_bbox_function(self):
     BlackBoxFunction.fn = self.function
@@ -246,8 +260,10 @@ class BlackBox(torch.nn.Module):
     # pass in function, input mappings, output mapping
     self.configure_bbox_function()
     # gumbel_inputs = [F.gumbel_softmax(input_i, tau=1) for input_i in inputs]
+    BlackBoxFunction.lengths = [input.lengths for input in inputs if type(input) == ListInput]
+    inputs = [input.tensor for input in inputs]
     output = BlackBoxFunction.apply(*tuple(inputs))
-
+    self.mapping = BlackBoxFunction.mapping
     return output
 
   def get_batch_size(self, input: Any):

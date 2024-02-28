@@ -121,7 +121,7 @@ class Trainer():
     self.train_loader = train_loader
     self.test_loader = test_loader
     self.device = device
-    self.loss_fn = F.binary_cross_entropy
+    self.loss = F.binary_cross_entropy
     self.model_root = model_root
     self.model_name = model_name
     self.min_test_loss = 100000000.0
@@ -129,11 +129,6 @@ class Trainer():
   def eval_result_eq(self, a, b, threshold=0.01):
     result = abs(a - b) < threshold
     return result
-
-  def loss(self, output, ground_truth):
-    (_, dim) = output.shape
-    gt = torch.stack([torch.tensor([1.0 if i == t else 0.0 for i in range(dim)]) for t in ground_truth])
-    return F.binary_cross_entropy(output, gt)
 
   def train_epoch(self, epoch):
     self.network.train()
@@ -144,7 +139,8 @@ class Trainer():
     for (img_seq, img_seq_len, label) in iter:
       batch_size = img_seq.shape[0]
       self.optimizer.zero_grad()
-      y_pred, mapping = self.network(img_seq.to(device), img_seq_len.to(device))
+      y_pred = self.network(img_seq.to(device), img_seq_len.to(device))
+      mapping = self.network.bbox.mapping
       if not mapping:
         continue
       y_label = torch.tensor([1.0 if self.eval_result_eq(l.item(), m) else 0.0 for l in label for m in mapping]).view(batch_size, -1)
