@@ -152,37 +152,6 @@ class Trainer():
       correct_perc = 100. * total_correct / num_items
       iter.set_description(f"[Train Epoch {epoch}] Loss: {loss.item():.4f} Overall Accuracy: {correct_perc:.4f}%")
 
-      # (output_mapping, y_pred) = self.network(img_seq.to(device), img_seq_len.to(device))
-      # y_pred = y_pred.to("cpu")
-
-      # # Normalize label format
-      # batch_size, num_outputs = y_pred.shape
-      # y = torch.tensor([1.0 if self.eval_result_eq(l.item(), m) else 0.0 for l in label for m in output_mapping]).view(batch_size, -1)
-
-      # # Compute loss
-      # loss = self.loss_fn(y_pred, y)
-      # self.optimizer.zero_grad()
-      # loss.backward()
-      # self.optimizer.step()
-      # if not math.isnan(loss.item()):
-      #   train_loss += loss.item()
-
-      # # Collect index and compute accuracy
-      # if num_outputs > 0:
-      #   y_index = torch.argmax(y, dim=1)
-      #   y_pred_index = torch.argmax(y_pred, dim=1)
-      #   correct_count = torch.sum(torch.where(torch.sum(y, dim=1) > 0, y_index == y_pred_index, torch.zeros(batch_size).bool())).item()
-      # else:
-      #   correct_count = 0
-
-      # # Stats
-      # num_items += batch_size
-      # total_correct += correct_count
-      # perc = 100. * total_correct / num_items
-      # avg_loss = train_loss / (i + 1)
-
-      # # Prints
-      # iter.set_description(f"[Train Epoch {epoch}] Avg loss: {avg_loss:.4f}, Accuracy: {total_correct}/{num_items} ({perc:.2f}%)")
 
   def test_epoch(self, epoch):
     self.network.eval()
@@ -192,15 +161,19 @@ class Trainer():
     with torch.no_grad():
       iter = tqdm(self.test_loader, total=len(self.test_loader))
       for i, (img_seq, img_seq_len, label) in enumerate(iter):
-        (output_mapping, y_pred) = self.network(img_seq.to(device), img_seq_len.to(device))
+        y_pred = self.network(img_seq.to(device), img_seq_len.to(device))
         y_pred = y_pred.to("cpu")
+        mapping = self.network.bbox.mapping
 
         # Normalize label format
         batch_size, num_outputs = y_pred.shape
-        y = torch.tensor([1.0 if self.eval_result_eq(l.item(), m) else 0.0 for l in label for m in output_mapping]).view(batch_size, -1)
+        if not mapping:
+          y = torch.tensor([0.0]).view(batch_size, -1)
+        else:
+          y = torch.tensor([1.0 if self.eval_result_eq(l.item(), m) else 0.0 for l in label for m in mapping]).view(batch_size, -1)
 
         # Compute loss
-        loss = self.loss_fn(y_pred, y)
+        loss = self.loss(y_pred, y)
         if not math.isnan(loss.item()):
           test_loss += loss.item()
 
