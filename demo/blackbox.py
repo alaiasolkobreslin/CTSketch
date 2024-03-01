@@ -146,7 +146,34 @@ def decorated_fn(fn, input_mappings, output_mapping, *inputs):
   results = invoke_function_on_batched_inputs(to_compute_inputs)
   output, mapping = output_mapping.vectorize(results)
 
-  return F.softmax(output, dim=1), mapping
+  # return F.softmax(output, dim=1), mapping
+  return output, mapping
+
+def combine_mappings(old_mapping, new_mapping):
+    # Find the maximum index in the old mapping
+    max_index = max(old_mapping.values(), default=-1)
+    
+    combined_mapping = {k: v for k, v in old_mapping.items()}
+    for k, v in new_mapping.items():
+        if k in combined_mapping:
+          continue
+        combined_mapping[k] = max_index + 1
+        max_index += 1
+        
+    return combined_mapping
+  
+def get_output_from_old_and_new_mapping(mapping, combined_mapping, old_output):
+  # make output tensor have dimension related to num indices in combined_mapping
+  new_output = torch.zeros(old_output.shape[0], len(combined_mapping))
+  for k, v in mapping.items():
+    # get new index for this key
+    k_new = combined_mapping[k]
+    # index into the output tensor
+    k_output = old_output[:,v]
+    # insert k_output into new_output at index k_new
+    new_output[:,k_new] = k_output
+  return new_output
+    
 
 def finite_difference(fn, input_mappings, output_mapping, output, mapping, *inputs):
   x = 2
@@ -205,8 +232,17 @@ def finite_difference(fn, input_mappings, output_mapping, output, mapping, *inpu
         # Compute the corresponding change in the output
         # expected size is 16x7x14
         input_to_decorated_fn = [torch.transpose(input_i, 0, 1) for input_i in inputs_i]
+        old_mapping = BlackBoxFunction.mapping
         decorated_fn_output, new_mapping = decorated_fn(fn, input_mappings, output_mapping, *tuple(input_to_decorated_fn))
-        y = decorated_fn_output - output  
+        combined_mapping = combine_mappings(old_mapping, new_mapping)
+        BlackBoxFunction.combined_mapping = combined_mapping
+        
+        new_decorated_fn_output = get_output_from_old_and_new_mapping(new_mapping, combined_mapping, decorated_fn_output)
+        new_output = get_output_from_old_and_new_mapping(old_mapping, combined_mapping, output)
+        new_decorated_fn_output = F.softmax(new_decorated_fn_output, dim=1)
+        new_output = F.softmax(new_output, dim=1)
+        
+        y = new_decorated_fn_output - new_output  
         
         # Update the jacobian, weighted by the probability of the unchanged inputs
         for batch_i in range(batch_size):
