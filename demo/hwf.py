@@ -136,6 +136,7 @@ class Trainer():
     for (img_seq, img_seq_len, label) in iter:
       self.optimizer.zero_grad()
       y_pred = self.network(img_seq.to(device), img_seq_len.to(device))
+      label = label.to(device)
       loss = self.loss(y_pred, label)
       loss.backward()
       self.optimizer.step()
@@ -154,7 +155,7 @@ class Trainer():
       iter = tqdm(self.test_loader, total=len(self.test_loader))
       for i, (img_seq, img_seq_len, label) in enumerate(iter):
         y_pred = self.network(img_seq.to(device), img_seq_len.to(device))
-        y_pred = y_pred.to("cpu")
+        label = label.to(device)
         batch_size = y_pred.shape[0]
 
         # Compute loss
@@ -198,7 +199,8 @@ if __name__ == "__main__":
   parser.add_argument("--do-not-use-hash", action="store_true")
   parser.add_argument("--provenance", type=str, default="difftopkproofs")
   parser.add_argument("--top-k", type=int, default=3)
-  parser.add_argument("--cuda", action="store_true")
+  # parser.add_argument("--cuda", action="store_true")
+  parser.add_argument("--cuda", type=bool, default=True)
   parser.add_argument("--gpu", type=int, default=1)
   parser.add_argument("--jit", action="store_true")
   parser.add_argument("--recompile", action="store_true")

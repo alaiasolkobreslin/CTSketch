@@ -4,6 +4,12 @@ from typing import *
 
 RESERVED_FAILURE = "__RESERVED_FAILURE__"
 
+if torch.cuda.is_available(): 
+  device = torch.device(f"cuda:1")
+else:
+  device = torch.device("cpu")
+
+
 class Input:
   def __init__(self, tensor: torch.Tensor):
     self.tensor = tensor
@@ -98,7 +104,7 @@ class UnknownDiscreteOutputMapping(OutputMapping):
       for i, res in enumerate(results):
         result_lst[i] = res[0] if res[0] != RESERVED_FAILURE else default_val
       
-      return torch.tensor(result_lst)
+      return torch.tensor(result_lst, device=device)
 
 def decorated_fn(fn, input_mappings, output_mapping, *inputs):
   
@@ -153,7 +159,8 @@ def finite_difference(fn, input_mappings, output_mapping, output, *inputs):
   # Compute the probability and the frequency of the inputs
   batch_size, num_inputs = inputs[0].shape[0], len(inputs)
   # hardcode number of inputs
-  probs, freqs = torch.zeros(num_inputs,7,batch_size,batch_size), torch.zeros(num_inputs,7,batch_size,batch_size)
+  probs = torch.zeros(num_inputs,7,batch_size,batch_size, device=device)
+  freqs = torch.zeros(num_inputs,7,batch_size,batch_size, device=device)
   for i in range(num_inputs):
     for j in range(7):
       for k in range(batch_size):
@@ -168,7 +175,7 @@ def finite_difference(fn, input_mappings, output_mapping, output, *inputs):
     for j in range(7):
       input_j = torch.transpose(input_i, 0, 1)[j]
       input_dim = input_j.shape[1]
-      jacobian_j = torch.zeros(batch_size, 1, input_dim)
+      jacobian_j = torch.zeros(batch_size, 1, input_dim, device=device)
       
       # extract the right list input first:
       probs_j = probs[:, j]
@@ -182,6 +189,7 @@ def finite_difference(fn, input_mappings, output_mapping, output, *inputs):
 
       for i in vals:
         # Perturb the jth input to be i
+        # TODO: can we possibly take lengths into account
         inputs_i = argmax_inputs.copy()        
         inputs_i[n][j] = F.one_hot(i, num_classes=input_dim).float().repeat(batch_size,1) 
         
@@ -228,6 +236,7 @@ class BlackBoxFunction(torch.autograd.Function):
     
     # normalization
     js = [torch.stack([F.normalize(grad_output.unsqueeze(1).unsqueeze(1).matmul(i).squeeze(1), dim=1, p=2) for i in j]) for j in js]
+    # js = [torch.transpose(j, 0, 1).to(torch.device("cpu")) for j in js]
     js = [torch.transpose(j, 0, 1) for j in js]
     return tuple(js)
   
