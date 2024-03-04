@@ -119,7 +119,7 @@ class Trainer():
     self.train_loader = train_loader
     self.test_loader = test_loader
     self.device = device
-    self.loss = F.binary_cross_entropy
+    self.loss = F.mse_loss
     self.model_root = model_root
     self.model_name = model_name
     self.min_test_loss = 100000000.0
@@ -131,18 +131,15 @@ class Trainer():
   def train_epoch(self, epoch):
     self.network.train()
     num_items = 0
-    train_loss = 0
     total_correct = 0
     iter = tqdm(self.train_loader, total=len(self.train_loader))
     for (img_seq, img_seq_len, label) in iter:
-      # batch_size = img_seq.shape[0]
       self.optimizer.zero_grad()
       y_pred = self.network(img_seq.to(device), img_seq_len.to(device))
       loss = self.loss(y_pred, label)
       loss.backward()
       self.optimizer.step()
-      # TODO: fix this?
-      total_correct += (y_pred.argmax(dim=1)==label).float().sum()
+      total_correct += torch.sum(torch.tensor([self.eval_result_eq(y_pred[i], label[i]) for i in range(y_pred.shape[0])])).item()
       num_items += y_pred.shape[0]
       correct_perc = 100. * total_correct / num_items
       iter.set_description(f"[Train Epoch {epoch}] Loss: {loss.item():.4f} Overall Accuracy: {correct_perc:.4f}%")
@@ -158,26 +155,16 @@ class Trainer():
       for i, (img_seq, img_seq_len, label) in enumerate(iter):
         y_pred = self.network(img_seq.to(device), img_seq_len.to(device))
         y_pred = y_pred.to("cpu")
-
-        # Normalize label format
-        batch_size, num_outputs = y_pred.shape
+        batch_size = y_pred.shape[0]
 
         # Compute loss
         loss = self.loss(y_pred, label)
         if not math.isnan(loss.item()):
           test_loss += loss.item()
 
-        # Collect index and compute accuracy
-        if num_outputs > 0:
-          y_index = torch.argmax(y, dim=1)
-          y_pred_index = torch.argmax(y_pred, dim=1)
-          correct_count = torch.sum(torch.where(torch.sum(y, dim=1) > 0, y_index == y_pred_index, torch.zeros(batch_size).bool())).item()
-        else:
-          correct_count = 0
-
         # Stats
         num_items += batch_size
-        total_correct += correct_count
+        total_correct += torch.sum(torch.tensor([self.eval_result_eq(y_pred[i], label[i]) for i in range(y_pred.shape[0])])).item()
         perc = 100. * total_correct / num_items
         avg_loss = test_loss / (i + 1)
 
@@ -212,7 +199,7 @@ if __name__ == "__main__":
   parser.add_argument("--provenance", type=str, default="difftopkproofs")
   parser.add_argument("--top-k", type=int, default=3)
   parser.add_argument("--cuda", action="store_true")
-  parser.add_argument("--gpu", type=int, default=0)
+  parser.add_argument("--gpu", type=int, default=1)
   parser.add_argument("--jit", action="store_true")
   parser.add_argument("--recompile", action="store_true")
   args = parser.parse_args()
