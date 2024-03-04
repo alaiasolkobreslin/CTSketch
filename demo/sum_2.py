@@ -11,7 +11,7 @@ import torch.optim as optim
 from argparse import ArgumentParser
 from tqdm import tqdm
 
-import blackbox
+import old_blackbox as blackbox
 import task_program
 
 mnist_img_transform = torchvision.transforms.Compose([
