@@ -110,8 +110,6 @@ class HWFNet(nn.Module):
     symbol = self.symbol_cnn(img_seq.flatten(start_dim=0, end_dim=1)).view(batch_size, formula_length, -1)
     list_input = blackbox.ListInput(tensor=symbol, lengths=length)
     return self.bbox(list_input)
-    # (mapping, probs) = self.eval_formula(symbol=symbol, length=length)
-    # return ([v for (v,) in mapping], probs)
 
 
 class Trainer():
@@ -137,16 +135,13 @@ class Trainer():
     total_correct = 0
     iter = tqdm(self.train_loader, total=len(self.train_loader))
     for (img_seq, img_seq_len, label) in iter:
-      batch_size = img_seq.shape[0]
+      # batch_size = img_seq.shape[0]
       self.optimizer.zero_grad()
       y_pred = self.network(img_seq.to(device), img_seq_len.to(device))
-      mapping = self.network.bbox.mapping
-      if not mapping:
-        continue
-      y_label = torch.tensor([1.0 if self.eval_result_eq(l.item(), m) else 0.0 for l in label for m in mapping]).view(batch_size, -1)
-      loss = self.loss(y_pred, y_label)
+      loss = self.loss(y_pred, label)
       loss.backward()
       self.optimizer.step()
+      # TODO: fix this?
       total_correct += (y_pred.argmax(dim=1)==label).float().sum()
       num_items += y_pred.shape[0]
       correct_perc = 100. * total_correct / num_items
@@ -163,17 +158,12 @@ class Trainer():
       for i, (img_seq, img_seq_len, label) in enumerate(iter):
         y_pred = self.network(img_seq.to(device), img_seq_len.to(device))
         y_pred = y_pred.to("cpu")
-        mapping = self.network.bbox.mapping
 
         # Normalize label format
         batch_size, num_outputs = y_pred.shape
-        if not mapping:
-          y = torch.tensor([0.0]).view(batch_size, -1)
-        else:
-          y = torch.tensor([1.0 if self.eval_result_eq(l.item(), m) else 0.0 for l in label for m in mapping]).view(batch_size, -1)
 
         # Compute loss
-        loss = self.loss(y_pred, y)
+        loss = self.loss(y_pred, label)
         if not math.isnan(loss.item()):
           test_loss += loss.item()
 

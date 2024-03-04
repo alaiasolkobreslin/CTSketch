@@ -93,22 +93,14 @@ class UnknownDiscreteOutputMapping(OutputMapping):
     def vectorize(self, results: List) -> torch.Tensor:
       # Get the unique elements
       batch_size = len(results)
-
-      elements = list(set([elem for batch in results for elem in batch if elem != RESERVED_FAILURE]))
-      element_indices = {e: i for (i, e) in enumerate(elements)}
-  
-      # If there is no element being derived...
-      if len(elements) == 0:
-        # We return a single fallback value
-        result_tensor = torch.zeros((1, 1), requires_grad=True)
-        return (result_tensor, element_indices)
-
-      result_tensor = torch.zeros((batch_size, len(elements)), requires_grad=True)
-      for i in range(batch_size):
-        result = results[i][0]
-        if result != RESERVED_FAILURE:
-          result_tensor[i, element_indices[result]].data += 1
-      return (result_tensor, element_indices)
+      
+      result_lst = [0] * batch_size
+      
+      default_val = 7000.0
+      for i, res in enumerate(results):
+        result_lst[i] = res[0] if res[0] != RESERVED_FAILURE else default_val
+      
+      return torch.tensor(result_lst)
 
 def decorated_fn(fn, input_mappings, output_mapping, *inputs):
   
@@ -144,10 +136,10 @@ def decorated_fn(fn, input_mappings, output_mapping, *inputs):
 
   # Get the outputs from the black-box function
   results = invoke_function_on_batched_inputs(to_compute_inputs)
-  output, mapping = output_mapping.vectorize(results)
+  output = output_mapping.vectorize(results)
 
-  # return F.softmax(output, dim=1), mapping
-  return output, mapping
+  # return F.softmax(output, dim=1)
+  return output
 
 def combine_mappings(old_mapping, new_mapping):
     # Find the maximum index in the old mapping
@@ -175,83 +167,52 @@ def get_output_from_old_and_new_mapping(mapping, combined_mapping, old_output):
   return new_output
     
 
-def finite_difference(fn, input_mappings, output_mapping, output, mapping, *inputs):
-  x = 2
-  
-  # Strategy we want to use
-  # Whatever the new outputs are, we need to add them to the mapping?
-
-  # swap the second and third dimension
-  reshaped_inputs = [torch.transpose(input, 1, 2) for input in inputs]
-  another_reshaped_inputs = [input.permute(1, 0, 2) for input in inputs]
+def finite_difference(fn, input_mappings, output_mapping, output, *inputs):
+  k = 2
 
   # Prepare the inputs to the black-box function
-  argmax_inputs = [F.one_hot(input_i.argmax(dim=1), num_classes=input_i.shape[1]).squeeze(1) for input_i in reshaped_inputs]
-  argmax_inputs = [torch.transpose(argmax_input, 0, 1) for argmax_input in argmax_inputs]
-  
+  argmax_inputs = [F.one_hot(input_i.argmax(dim=1), num_classes=input_i.shape[1]).squeeze(1) for input_i in inputs]
+
   # Compute the probability and the frequency of the inputs
-  batch_size, num_inputs = inputs[0].shape[0], len(inputs)
-  # hardcode number of inputs
-  probs, freqs = torch.zeros(num_inputs,7,batch_size,batch_size), torch.zeros(num_inputs,7,batch_size,batch_size)
+  batch_size, num_inputs = argmax_inputs[0].shape[0], len(argmax_inputs)
+  probs, freqs = torch.zeros(num_inputs,batch_size,batch_size), torch.zeros(num_inputs,batch_size,batch_size)
   for i in range(num_inputs):
-    for j in range(7):
-      for k in range(batch_size):
-        argmax_inputs_k = argmax_inputs[i][j].argmax()
-        # we want the dimension before the last indexing to be 16x14
-        probs[i][j][k] = another_reshaped_inputs[i][j][:,argmax_inputs_k]
-        # currently, the size after calling torch.where is 7x14
-        freqs[i][j][k] = torch.where(argmax_inputs[i][j].argmax(dim=1)==argmax_inputs_k,1,0)
+    for j in range(batch_size):
+      # argmax_inputs[i][j] has shape (10,)
+      argmax_inputs_j = argmax_inputs[i][j].argmax()
+      # probs[i][j] shape is (16,)
+      # inputs[i] shape is (16,10)
+      # argmax_inputs_j should be the argmax across the batch size?
+      # argmax_inputs_j shape is []
+      probs[i][j] = inputs[i][:,argmax_inputs_j]
+      # freqs[i][j] shape is (16,) (this is the same output shape as torch.where)
+      # we are comparing size [16] with size []
+      freqs[i][j] = torch.where(argmax_inputs[i].argmax(dim=1)==argmax_inputs_j,1,0)
 
   # Compute the jacobian for each input
   jacobian = []
   for n, input_i in enumerate(inputs):
-    jacobian_i = []
-    for j in range(7):
-      input_j = torch.transpose(input_i, 0, 1)[j]
-      input_dim = input_j.shape[1]
-      jacobian_j = torch.zeros(batch_size, output.shape[1], input_dim)
-      
-      # extract the right list input first:
-      probs_j = probs[:, j]
-      freqs_j = freqs[:, j]
-      
-      # Remove the information about the nth input
-      probs_n = torch.cat((probs_j[:n],probs_j[n+1:]))
-      freqs_n = torch.cat((freqs_j[:n],freqs_j[n+1:]))
-      
-      vals = torch.multinomial(torch.ones(input_dim),x).sort().values
+    input_dim = input_i.shape[1]
+    jacobian_i = torch.zeros(batch_size, output.shape[1], input_dim)
+    
+    # Remove the information about the nth input
+    probs_n = torch.cat((probs[:n],probs[n+1:]))
+    freqs_n = torch.cat((freqs[:n],freqs[n+1:]))
 
-      for i in vals:
-        # Perturb the jth input to be i
-        inputs_i = argmax_inputs.copy()
-        # inputs_i = [torch.transpose(input_i, 0, 1) for input_i in inputs_i]
-        
-        # perturbed_input = F.one_hot(i, num_classes=input_dim).float()
-        inputs_i[n][j] = F.one_hot(i, num_classes=input_dim).float().repeat(batch_size,1) 
-        
-        # Compute the corresponding change in the output
-        # expected size is 16x7x14
-        input_to_decorated_fn = [torch.transpose(input_i, 0, 1) for input_i in inputs_i]
-        old_mapping = BlackBoxFunction.mapping
-        decorated_fn_output, new_mapping = decorated_fn(fn, input_mappings, output_mapping, *tuple(input_to_decorated_fn))
-        combined_mapping = combine_mappings(old_mapping, new_mapping)
-        BlackBoxFunction.combined_mapping = combined_mapping
-        
-        new_decorated_fn_output = get_output_from_old_and_new_mapping(new_mapping, combined_mapping, decorated_fn_output)
-        new_output = get_output_from_old_and_new_mapping(old_mapping, combined_mapping, output)
-        new_decorated_fn_output = F.softmax(new_decorated_fn_output, dim=1)
-        new_output = F.softmax(new_output, dim=1)
-        
-        y = new_decorated_fn_output - new_output  
-        
-        # Update the jacobian, weighted by the probability of the unchanged inputs
-        for batch_i in range(batch_size):
-          probs_i = probs_n[:,batch_i,:].prod(dim=0)
-          freqs_i = freqs_n[:,batch_i,:].prod(dim=0).sum()
-          jacobian_j[:,:,i] += y[batch_i].unsqueeze(0).repeat(batch_size,1)*(probs_i.unsqueeze(1))/(input_dim)
-          
-      jacobian_i.append(jacobian_j)
+    for i in torch.multinomial(torch.ones(input_dim),k).sort().values:
+      # Perturb the nth input to be i
+      inputs_i = argmax_inputs.copy()
+      inputs_i[n] = F.one_hot(i, num_classes=input_dim).float().repeat(batch_size,1) 
       
+      # Compute the corresponding change in the output
+      y = decorated_fn(fn, input_mappings, output_mapping, *tuple(inputs_i)) - output  
+      
+      # Update the jacobian, weighted by the probability of the unchanged inputs
+      for batch_i in range(batch_size):
+        probs_i = probs_n[:,batch_i,:].prod(dim=0)
+        freqs_i = freqs_n[:,batch_i,:].prod(dim=0).sum()
+        jacobian_i[:,:,i] += y[batch_i].unsqueeze(0).repeat(batch_size,1)*(probs_i.unsqueeze(1))/(input_dim)
+    
     jacobian.append(jacobian_i)
   
   return tuple(jacobian)
@@ -261,19 +222,16 @@ class BlackBoxFunction(torch.autograd.Function):
   fn = []
   input_mappings = []
   output_mapping = []
-  mapping = []
 
   @staticmethod
   def forward(ctx, *inputs):
-    output, mapping = decorated_fn(BlackBoxFunction.fn, BlackBoxFunction.input_mappings, BlackBoxFunction.output_mapping, *inputs)
+    output = decorated_fn(BlackBoxFunction.fn, BlackBoxFunction.input_mappings, BlackBoxFunction.output_mapping, *inputs)
 
     # To use during backward propagation
     ctx.save_for_backward(*inputs, output)
     ctx.bbox_fn = BlackBoxFunction.fn
     ctx.input_mappings = BlackBoxFunction.input_mappings
     ctx.output_mapping = BlackBoxFunction.output_mapping
-    ctx.mapping = mapping
-    BlackBoxFunction.mapping = mapping
     return output
 
   @staticmethod
@@ -282,8 +240,7 @@ class BlackBoxFunction(torch.autograd.Function):
     bbox_fn = ctx.bbox_fn
     input_mappings = ctx.input_mappings
     output_mapping = ctx.output_mapping
-    mapping = ctx.mapping
-    js = finite_difference(bbox_fn, input_mappings, output_mapping, output, mapping, *inputs)
+    js = finite_difference(bbox_fn, input_mappings, output_mapping, output, *inputs)
     # js contains one element: a list of length 7, each element is 16x2x14
     
     # normalization
@@ -324,7 +281,7 @@ class BlackBox(torch.nn.Module):
     BlackBoxFunction.lengths = [input.lengths for input in inputs if type(input) == ListInput]
     inputs = [input.tensor for input in inputs]
     output = BlackBoxFunction.apply(*tuple(inputs))
-    self.mapping = BlackBoxFunction.mapping
+    # self.mapping = BlackBoxFunction.mapping
     return output
 
   def get_batch_size(self, input: Any):
