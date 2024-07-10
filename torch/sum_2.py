@@ -63,24 +63,25 @@ class MNISTSum2Dataset(torch.utils.data.Dataset):
 
 def mnist_sum_2_loader(data_dir, batch_size_train, batch_size_test):
   train_loader = torch.utils.data.DataLoader(
-    MNISTSum2Dataset(
-      data_dir,
-      train=True,
-      download=True,
-      transform=mnist_img_transform,
-    ),
+    torch.utils.data.Subset(
+      MNISTSum2Dataset(
+        data_dir,
+        train=True,
+        download=True,
+        transform=mnist_img_transform,
+      ), list(range(5000))),
     collate_fn=MNISTSum2Dataset.collate_fn,
     batch_size=batch_size_train,
     shuffle=True
   )
 
   test_loader = torch.utils.data.DataLoader(
-    MNISTSum2Dataset(
+    torch.utils.data.Subset(MNISTSum2Dataset(
       data_dir,
       train=False,
       download=True,
       transform=mnist_img_transform,
-    ),
+    ), list(range(500))),
     collate_fn=MNISTSum2Dataset.collate_fn,
     batch_size=batch_size_test,
     shuffle=True

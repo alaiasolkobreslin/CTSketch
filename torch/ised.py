@@ -35,16 +35,16 @@ class ISED(nn.Module):
             else:
                 raise Exception("Unknown semiring")
         
-        # # Vectorize the results
-        # for i in range(batch_size):
-        #     for k in range(self.k):
-        #         result_probs[i, k] *= results[k][i]
-        
-        # Return normalized result
-        # return torch.nn.functional.normalize(result, dim=1)
+        # Vectorize result
         result_tensor = torch.zeros((batch_size, self.output_mapping))
         for i in range(batch_size):
             for k in range(self.k):
-                result_tensor[i, results[k][i]] += result_probs[i, k]
+                if self.semiring == "add-mult":
+                    result_tensor[i, results[k][i]] += result_probs[i, k]
+                elif self.semiring == "min-max":
+                    result_tensor[i, results[k][i]] = torch.maximum(
+                        result_tensor[i, results[k][i]], result_probs[i, k])
+                else:
+                    raise Exception("Unknown semiring")
         y_pred = torch.nn.functional.normalize(result_tensor, dim=1)
         return y_pred
