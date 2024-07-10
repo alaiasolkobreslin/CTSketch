@@ -1,0 +1,13 @@
+import torch.nn as nn
+import torch.nn.functional as F
+
+class FiniteDifference(nn.Module):
+    def __init__(self, bbox):
+        super().__init__()
+        self.f = bbox
+        
+    def forward(self, x):
+        pass
+
+    def backward():
+        pass
