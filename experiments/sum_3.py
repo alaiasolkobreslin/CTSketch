@@ -13,10 +13,10 @@ import torch.optim as optim
 from argparse import ArgumentParser
 from tqdm import tqdm
 
-import ised
-
 from src import input
 from src import output
+
+from torch_modules import ised
 
 mnist_img_transform = torchvision.transforms.Compose([
   torchvision.transforms.ToTensor(),
@@ -25,7 +25,7 @@ mnist_img_transform = torchvision.transforms.Compose([
   )
 ])
 
-class MNISTSum2Dataset(torch.utils.data.Dataset):
+class MNISTSum3Dataset(torch.utils.data.Dataset):
   def __init__(
     self,
     root: str,
@@ -46,46 +46,46 @@ class MNISTSum2Dataset(torch.utils.data.Dataset):
     random.shuffle(self.index_map)
 
   def __len__(self):
-    return int(len(self.mnist_dataset) / 2)
+    return int(len(self.mnist_dataset) / 3)
 
   def __getitem__(self, idx):
-    # Get two data points
-    (a_img, a_digit) = self.mnist_dataset[self.index_map[idx * 2]]
-    (b_img, b_digit) = self.mnist_dataset[self.index_map[idx * 2 + 1]]
+    (a_img, a_digit) = self.mnist_dataset[self.index_map[idx * 3]]
+    (b_img, b_digit) = self.mnist_dataset[self.index_map[idx * 3 + 1]]
+    (c_img, c_digit) = self.mnist_dataset[self.index_map[idx * 3 + 2]]
 
-    # Each data has two images and the GT is the sum of two digits
-    return (a_img, b_img, a_digit + b_digit)
+    return (a_img, b_img, c_img, a_digit + b_digit + c_digit)
 
   @staticmethod
   def collate_fn(batch):
     a_imgs = torch.stack([item[0] for item in batch])
     b_imgs = torch.stack([item[1] for item in batch])
-    digits = torch.stack([torch.tensor(item[2]).long() for item in batch])
-    return ((a_imgs, b_imgs), digits)
+    c_imgs = torch.stack([item[2] for item in batch])
+    digits = torch.stack([torch.tensor(item[3]).long() for item in batch])
+    return ((a_imgs, b_imgs, c_imgs), digits)
 
 
-def mnist_sum_2_loader(data_dir, batch_size_train, batch_size_test):
+def mnist_sum_3_loader(data_dir, batch_size_train, batch_size_test):
   train_loader = torch.utils.data.DataLoader(
     torch.utils.data.Subset(
-      MNISTSum2Dataset(
+      MNISTSum3Dataset(
         data_dir,
         train=True,
         download=True,
         transform=mnist_img_transform,
       ), list(range(5000))),
-    collate_fn=MNISTSum2Dataset.collate_fn,
+    collate_fn=MNISTSum3Dataset.collate_fn,
     batch_size=batch_size_train,
     shuffle=True
   )
 
   test_loader = torch.utils.data.DataLoader(
-    torch.utils.data.Subset(MNISTSum2Dataset(
+    torch.utils.data.Subset(MNISTSum3Dataset(
       data_dir,
       train=False,
       download=True,
       transform=mnist_img_transform,
     ), list(range(500))),
-    collate_fn=MNISTSum2Dataset.collate_fn,
+    collate_fn=MNISTSum3Dataset.collate_fn,
     batch_size=batch_size_test,
     shuffle=True
   )
@@ -111,32 +111,32 @@ class MNISTNet(nn.Module):
     return F.softmax(x, dim=1)
 
 
-class MNISTSum2Net(nn.Module):
+class MNISTSum3Net(nn.Module):
   def __init__(self, k, semiring):
-    super(MNISTSum2Net, self).__init__()
+    super(MNISTSum3Net, self).__init__()
 
     # MNIST Digit Recognition Network
     self.mnist_net = MNISTNet()
 
-    # The `sum_2` logical reasoning module
+    # The `sum_3` logical reasoning module
     kwargs = {
-      "bbox": (lambda x1, x2: x1 + x2),
+      "bbox": (lambda x1, x2, x3: x1 + x2 + x3),
       "n_samples": k,
       "semiring": semiring,
-      "input_mappings": [input.DiscreteInputMapping(list(range(10))), input.DiscreteInputMapping(list(range(10)))],
-      "output_mapping": output.DiscreteOutputMapping(list(range(19)), semiring),
+      "input_mappings": [input.DiscreteInputMapping(list(range(10))), input.DiscreteInputMapping(list(range(10))), input.DiscreteInputMapping(list(range(10)))],
+      "output_mapping": output.DiscreteOutputMapping(list(range(28)), semiring),
     }
-    self.sum_2 = ised.ISED(**kwargs)
+    self.sum_3 = ised.ISED(**kwargs)
 
   def forward(self, x: Tuple[torch.Tensor, torch.Tensor]):
-    (a_imgs, b_imgs) = x
+    (a_imgs, b_imgs, c_imgs) = x
 
-    # First recognize the two digits
     a_distrs = self.mnist_net(a_imgs) # Tensor 64 x 10
     b_distrs = self.mnist_net(b_imgs) # Tensor 64 x 10
+    c_distrs = self.mnist_net(c_imgs) # Tensor 64 x 10
 
-    # Then execute the reasoning module; the result is a size 19 tensor
-    return self.sum_2(input.SingleInput(a_distrs), input.SingleInput(b_distrs))
+    # Then execute the reasoning module; the result is a size 28 tensor
+    return self.sum_3(input.SingleInput(a_distrs), input.SingleInput(b_distrs), input.SingleInput(c_distrs))
 
 
 def bce_loss(output, ground_truth):
@@ -148,7 +148,7 @@ def bce_loss(output, ground_truth):
 class Trainer():
   def __init__(self, train_loader, test_loader, model_dir, learning_rate, k, semiring):
     self.model_dir = model_dir
-    self.network = MNISTSum2Net(k, semiring)
+    self.network = MNISTSum3Net(k, semiring)
     self.optimizer = optim.Adam(self.network.parameters(), lr=learning_rate)
     self.train_loader = train_loader
     self.test_loader = test_loader
@@ -183,7 +183,7 @@ class Trainer():
         iter.set_description(f"[Test Epoch {epoch}] Total loss: {test_loss:.4f}, Accuracy: {correct}/{num_items} ({perc:.2f}%)")
       if test_loss < self.best_loss:
         self.best_loss = test_loss
-        # torch.save(self.network, os.path.join(model_dir, "sum_2_best.pt"))
+        # torch.save(self.network, os.path.join(model_dir, "sum_3_best.pt"))
 
   def train(self, n_epochs):
     self.test_epoch(0)
@@ -194,7 +194,7 @@ class Trainer():
 
 if __name__ == "__main__":
   # Argument parser
-  parser = ArgumentParser("mnist_sum_2")
+  parser = ArgumentParser("mnist_sum_3")
   parser.add_argument("--n-epochs", type=int, default=10)
   parser.add_argument("--batch-size-train", type=int, default=64)
   parser.add_argument("--batch-size-test", type=int, default=64)
@@ -216,11 +216,11 @@ if __name__ == "__main__":
 
   # Data
   data_dir = os.path.abspath(os.path.join(os.path.abspath(__file__), "../../data"))
-  model_dir = os.path.abspath(os.path.join(os.path.abspath(__file__), "../../model/mnist_sum_2"))
+  model_dir = os.path.abspath(os.path.join(os.path.abspath(__file__), "../../model/mnist_sum_3"))
   os.makedirs(model_dir, exist_ok=True)
 
   # Dataloaders
-  train_loader, test_loader = mnist_sum_2_loader(data_dir, batch_size_train, batch_size_test)
+  train_loader, test_loader = mnist_sum_3_loader(data_dir, batch_size_train, batch_size_test)
 
   # Create trainer and train
   trainer = Trainer(train_loader, test_loader, model_dir, learning_rate, k, semiring)
