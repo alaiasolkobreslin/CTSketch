@@ -15,21 +15,12 @@ class Input:
     def gather(self, dim: int, indices: torch.Tensor):
         pass
 
-    def gather_permutations(self, dim: int, indices: torch.Tensor, permutations: List[Tuple]):
-        pass
-
-    def get_input_for_pooling(self):
-        pass
-
 
 class SingleInput(Input):
     def __init__(self, tensor: torch.Tensor):
         super(SingleInput, self).__init__(tensor)
 
     def gather(self, dim: int, indices: torch.Tensor):
-        return self.tensor.gather(dim, indices)
-
-    def gather_permutations(self, dim: int, indices: torch.Tensor, permutations: List[Tuple]):
         return self.tensor.gather(dim, indices)
 
 
@@ -45,18 +36,6 @@ class ListInput(Input):
     def gather(self, dim: int, indices: torch.Tensor):
         result = self.tensor.gather(dim + 1, indices)
         return torch.prod(result, dim=1)
-
-    def gather_permutations(self, dim: int, indices: torch.Tensor, permutations: List[Tuple]):
-        _, length, _ = indices.shape
-        proofs = []
-        tensor_lst = [i for i in torch.transpose(self.tensor, 0, 1)]
-        for perm in permutations:
-            permuted = torch.stack([tensor_lst[perm[i]]
-                                   for i in range(length)])
-            new_tensor = torch.transpose(permuted, 0, 1)
-            new_tensor_gathered = new_tensor.gather(dim+1, indices)
-            proofs.append(torch.prod(new_tensor_gathered, dim=1))
-        return proofs
 
 
 class PaddedListInput(Input):
@@ -88,7 +67,6 @@ class PaddedListInputMapping(InputMapping):
     def __init__(self, max_length: int, element_input_mapping: InputMapping):
         self.max_length = max_length
         self.element_input_mapping = element_input_mapping
-        self.does_permute = True
 
     def sample(self, list_input: PaddedListInput, sample_count: int) -> Tuple[torch.Tensor, List[List[Any]]]:
         # Sample the elements
@@ -124,7 +102,6 @@ class ListInputMapping(InputMapping):
     def __init__(self, length: int, element_input_mapping: InputMapping):
         self.length = length
         self.element_input_mapping = element_input_mapping
-        self.does_permute = True
 
     def sample(self, list_input: ListInput, sample_count: int) -> Tuple[torch.Tensor, List[List[Any]]]:
         # Sample the elements
