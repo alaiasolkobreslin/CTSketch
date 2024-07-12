@@ -15,6 +15,9 @@ from tqdm import tqdm
 
 import ised
 
+from src import input
+from src import output
+
 mnist_img_transform = torchvision.transforms.Compose([
   torchvision.transforms.ToTensor(),
   torchvision.transforms.Normalize(
@@ -109,14 +112,21 @@ class MNISTNet(nn.Module):
 
 
 class MNISTSum2Net(nn.Module):
-  def __init__(self, k):
+  def __init__(self, k, semiring):
     super(MNISTSum2Net, self).__init__()
 
     # MNIST Digit Recognition Network
     self.mnist_net = MNISTNet()
 
     # The `sum_2` logical reasoning module
-    self.sum_2 = ised.ISED(bbox=(lambda x1, x2: x1 + x2), n_samples=k, semiring="add-mult", output_mapping = 19)
+    kwargs = {
+      "bbox": (lambda x1, x2: x1 + x2),
+      "n_samples": k,
+      "semiring": semiring,
+      "input_mappings": [input.DiscreteInputMapping(list(range(10))), input.DiscreteInputMapping(list(range(10)))],
+      "output_mapping": output.DiscreteOutputMapping(list(range(19)), semiring),
+    }
+    self.sum_2 = ised.ISED(**kwargs)
 
   def forward(self, x: Tuple[torch.Tensor, torch.Tensor]):
     (a_imgs, b_imgs) = x
@@ -126,7 +136,7 @@ class MNISTSum2Net(nn.Module):
     b_distrs = self.mnist_net(b_imgs) # Tensor 64 x 10
 
     # Then execute the reasoning module; the result is a size 19 tensor
-    return self.sum_2(a_distrs, b_distrs)
+    return self.sum_2(input.SingleInput(a_distrs), input.SingleInput(b_distrs))
 
 
 def bce_loss(output, ground_truth):
@@ -136,9 +146,9 @@ def bce_loss(output, ground_truth):
 
 
 class Trainer():
-  def __init__(self, train_loader, test_loader, model_dir, learning_rate, k):
+  def __init__(self, train_loader, test_loader, model_dir, learning_rate, k, semiring):
     self.model_dir = model_dir
-    self.network = MNISTSum2Net(k)
+    self.network = MNISTSum2Net(k, semiring)
     self.optimizer = optim.Adam(self.network.parameters(), lr=learning_rate)
     self.train_loader = train_loader
     self.test_loader = test_loader
@@ -188,8 +198,9 @@ if __name__ == "__main__":
   parser.add_argument("--n-epochs", type=int, default=10)
   parser.add_argument("--batch-size-train", type=int, default=64)
   parser.add_argument("--batch-size-test", type=int, default=64)
-  parser.add_argument("--learning-rate", type=float, default=0.001)
+  parser.add_argument("--learning-rate", type=float, default=0.0001)
   parser.add_argument("--seed", type=int, default=1234)
+  parser.add_argument("--semiring", type=str, default="add-mult")
   parser.add_argument("--k", type=int, default=100)
   args = parser.parse_args()
 
@@ -199,6 +210,7 @@ if __name__ == "__main__":
   batch_size_test = args.batch_size_test
   learning_rate = args.learning_rate
   k = args.k
+  semiring = args.semiring
   torch.manual_seed(args.seed)
   random.seed(args.seed)
 
@@ -211,5 +223,5 @@ if __name__ == "__main__":
   train_loader, test_loader = mnist_sum_2_loader(data_dir, batch_size_train, batch_size_test)
 
   # Create trainer and train
-  trainer = Trainer(train_loader, test_loader, model_dir, learning_rate, k)
+  trainer = Trainer(train_loader, test_loader, model_dir, learning_rate, k, semiring)
   trainer.train(n_epochs)
