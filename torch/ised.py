@@ -2,6 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributions as dist
+import signal
+import functools
+import os
+import errno
 
 from src import constants
 from src import util
@@ -16,6 +20,23 @@ class ISED(nn.Module):
         self.output_mapping = kwargs['output_mapping']
         self.fn_cache = {}
         self.caching = True
+        self.timeout_seconds = 1
+        self.error_message = os.strerror(errno.ETIME)
+        
+    def timeout_decorator(self, func):
+        def _handle_timeout(signum, frame):
+            raise TimeoutError(self.error_message)
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            signal.signal(signal.SIGALRM, _handle_timeout)
+            signal.alarm(self.timeout_seconds)
+            try:
+                result = func(*args, **kwargs)
+            finally:
+                signal.alarm(0)
+            return result
+        return wrapper
         
     def forward(self, *inputs):
         batch_size = inputs[0].tensor.size(0)
@@ -63,8 +84,6 @@ class ISED(nn.Module):
         """
         for r in input_args:
             try:
-                # fn_input = (self.input_mappings[i].combine(
-                    # elt) for i, elt in enumerate(r))
                 if not self.caching:
                     yield self.f(*r)
                 else:
@@ -72,7 +91,7 @@ class ISED(nn.Module):
                     if hashable_fn_input in self.fn_cache:
                         yield self.fn_cache[hashable_fn_input]
                     else:
-                        y = self.f(*r)
+                        y = self.timeout_decorator(self.f)(*r)
                         self.fn_cache[hashable_fn_input] = y
                         yield y
             except:
