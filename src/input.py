@@ -58,8 +58,8 @@ class InputMapping:
     def shape(self): pass
 
     def sample(self, input: Any,
-               sample_count: int) -> Tuple[torch.Tensor, List[Any]]: pass
-
+               sample_count: int) -> Tuple[torch.distributions.Categorical, torch.Tensor, List[Any]]: pass
+    
     def argmax(self, input: Any) -> Tuple[torch.Tensor, List[Any]]: pass
 
 
@@ -73,7 +73,7 @@ class PaddedListInputMapping(InputMapping):
         batch_size, list_length = list_input.tensor.shape[0], list_input.tensor.shape[1]
         assert list_length == self.max_length, "inputs must have the same number of columns as the max length"
         flattened = list_input.tensor.reshape((batch_size * list_length, -1))
-        sampled_indices, sampled_elements = self.element_input_mapping.sample(
+        distrs, sampled_indices, sampled_elements = self.element_input_mapping.sample(
             SingleInput(flattened), sample_count)
 
         # Reshape the sampled elements
@@ -92,7 +92,7 @@ class PaddedListInputMapping(InputMapping):
         sampled_indices = sampled_indices.reshape(
             batch_size, list_length, *sampled_indices_original_shape)
 
-        return (sampled_indices, result_sampled_elements)
+        return (distrs, sampled_indices, result_sampled_elements)
 
     def argmax(self, input: PaddedListInput):
         pass
@@ -148,7 +148,7 @@ class DiscreteInputMapping(InputMapping):
         sampled_indices = distrs.sample((sample_count,)).transpose(0, 1)
         sampled_elements = [[self.elements[i] for i in sampled_indices_for_task_i]
                             for sampled_indices_for_task_i in sampled_indices]
-        return (sampled_indices, sampled_elements)
+        return (distrs, sampled_indices, sampled_elements)
 
     def argmax(self, inputs: SingleInput):
         num_input_elements = inputs.tensor.shape[1]
@@ -157,4 +157,3 @@ class DiscreteInputMapping(InputMapping):
         max_indices = torch.argmax(inputs.tensor, dim=1)
         max_elements = [self.elements[i] for i in max_indices]
         return (max_indices, max_elements)
-
