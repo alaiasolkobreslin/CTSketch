@@ -14,6 +14,9 @@ class Input:
 
     def gather(self, dim: int, indices: torch.Tensor):
         pass
+    
+    def shape(self):
+        return self.tensor.shape
 
 
 class SingleInput(Input):

@@ -59,10 +59,13 @@ class REINFORCE(nn.Module):
         to_compare = gt.unsqueeze(-1).repeat(1, self.k)
         f_sample = torch.where(results == to_compare, 1., 0.)
         
-        sampled_indices_t = [sampled_indices_i.t() for sampled_indices_i in sampled_indices]
+        dims = [list(range(len(input_i.shape()))) for input_i in inputs]
+        orderings = [[dim[1:] + [0]] for dim in dims]
+        reverse_orderings = [[-1] + dim[0:-1] for dim in dims]
+        sampled_indices = [sampled_indices[i].permute(*orderings[i]) for i in range(len(sampled_indices))]
         log_p_sample = []
         for i in range(len(distrs)):
-            log_p_sample.append(torch.stack([distrs[i].log_prob(sampled_indices_t[i][j]) for j in range(self.k)]).t())
+            log_p_sample.append(torch.stack([distrs[i].log_prob(sampled_indices[i][j]) for j in range(self.k)]).permute(*reverse_orderings))
         f_mean = f_sample.mean(dim=0)
         
         reinforce = (f_sample.detach() * torch.stack(log_p_sample)).mean(dim=0)
