@@ -6,9 +6,6 @@ import csv
 from argparse import ArgumentParser
 import os
 import random
-import sys
-
-sys.path.append("/Users/seewon/Desktop/finite_diff")
 
 from dataset import scene_loader, scenes, SceneNet, objects, Trainer, objects_long
 from torch_modules.finite_difference import FiniteDifference, ListInputMapping, DiscreteInputMapping, DiscreteOutputMapping
