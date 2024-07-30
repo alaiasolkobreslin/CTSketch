@@ -105,45 +105,35 @@ class BlackBoxFunction(torch.autograd.Function):
           
       if type(output_mapping) == UnknownDiscreteOutputMapping:
         output = F.one_hot(output.argmax(dim=1), num_classes = len(y_elements)).float() 
-        output = torch.where(output==0, 0.1/(output.shape[1]-1), 0.9)
+        output = F.softmax(output, dim=-1)
       elif type(output_mapping) == DiscreteOutputMapping:
-        output = torch.where(output==0, 0.1/(output.shape[1]-1), 0.9)
+        output = F.softmax(output, dim=-1)
       return output, perts, ys, y_elements  
     
     def finite_difference(input_mappings, output_mapping, output, perts, ys, *inputs):
-        batch_size, num_inputs = inputs[0].shape[0], len(inputs)
-
-        # Compute the probability of the inputs
-        probs, freqs = torch.zeros(num_inputs,batch_size,batch_size), torch.zeros(num_inputs,batch_size,batch_size)
-        for i, input_i in enumerate(inputs):
-          argmax_input = input_i.argmax(dim=1)
-          probs[i] = input_i[:,argmax_input].t()
-          freqs[i] = torch.where(argmax_input.repeat(batch_size, 1)==argmax_input.unsqueeze(-1).repeat(1,batch_size),1,0)
+        batch_size = inputs[0].shape[0]
 
         # Compute the jacobian for each input
         jacobian = []
-        for n, (input_i, pert_i, y_i, mapping_i) in enumerate(zip(inputs, perts, ys, input_mappings)):
+        for input_i, pert_i, y_i, mapping_i in zip(inputs, perts, ys, input_mappings):
           input_dim = input_i.shape[1]
           jacobian_i = torch.zeros(batch_size, output.shape[1], input_dim)
-
-          # Remove the information about the nth input
-          probs_n = torch.cat((probs[:n],probs[n+1:])).prod(dim=0).unsqueeze(-1)
-          freqs_n = torch.cat((freqs[:n],freqs[n+1:])).prod(dim=0).sum(dim=1).unsqueeze(-1) #.unsqueeze(-1)
             
           for i, y in zip(pert_i, y_i):                
             # Compute the corresponding change in the output
             if type(output_mapping) == UnknownDiscreteOutputMapping:
               y = F.pad(y, (0, output.shape[1]-y.shape[1], 0, 0)) 
-              y = torch.where(y==0, 0.1/(y.shape[1]-1), 0.9)
+              y = F.softmax(y, dim=-1)
             elif type(output_mapping) == DiscreteOutputMapping:
-              y = torch.where(y==0, 0.1/(y.shape[1]-1), 0.9)
+              y = F.softmax(y, dim=-1)
             y = y - output  
 
             # Update the jacobian, weighted by the probability of the unchanged inputs
             if type(mapping_i) == DiscreteInputMapping:
               i = i[0].argmax()
-              t = y.unsqueeze(1).repeat(1, batch_size, 1)*(probs_n/freqs_n)*(input_i[:,i].unsqueeze(-1).unsqueeze(-1))
+              t = y.unsqueeze(1).repeat(1, batch_size, 1)*(input_i[:,i].unsqueeze(-1).unsqueeze(-1))
               jacobian_i[:,:,i] += t.sum(dim=0)
+
               c3 = input_i.argmax(dim=1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).repeat(1,batch_size,output.shape[1],input_dim)
               v3 = torch.arange(input_dim).unsqueeze(0).unsqueeze(1).unsqueeze(2)
               jacobian_i -= torch.where(c3==v3, t.unsqueeze(-1).repeat(1,1,1,input_dim), 0).sum(dim=0)
@@ -160,8 +150,9 @@ class BlackBoxFunction(torch.autograd.Function):
                     continue
 
                   i2 = i_j[b].argmax()     
-                  t = y[b].unsqueeze(0)*(probs_n[b]/freqs_n[b])*(input_i_j[:i2].unsqueeze(-1).unsqueeze(-1))
+                  t = y[b].unsqueeze(0)*(input_i_j[:i2].unsqueeze(-1).unsqueeze(-1))
                   jacobian_i[:,:,j*element_len+i2] += t
+
                   c3 = input_i_j.argmax(dim=1).unsqueeze(-1).unsqueeze(-1)
                   v3 = torch.arange(element_len).unsqueeze(0).unsqueeze(1)
                   jacobian_i[:,:,j*element_len:(j+1)*element_len] -= torch.where(c3==v3, t.unsqueeze(-1), 0)
@@ -178,7 +169,8 @@ class InputMapping:
 
   def get_perturbations(self): pass
 
-  def return_elements(self): pass
+  def return_elements(self):
+     return self.elements
 
 class DiscreteInputMapping(InputMapping):
   def __init__(self, elements: List[Any]):
@@ -195,12 +187,9 @@ class DiscreteInputMapping(InputMapping):
   
   def get_perturbations(self, k, probs):
     max_probs = probs.max(dim=1).values.unsqueeze(-1)
-    probs = torch.where(max_probs == probs, 0, probs + max_probs/(probs.shape[0]-1))
+    probs = torch.where(max_probs == probs, 0, probs + max_probs/(probs.shape[1]-1))
     x = torch.multinomial(probs, k).sort().values
     return F.one_hot(x, num_classes=len(self.elements)).permute(1,0,2)
-  
-  def return_elements(self):
-    return self.elements
 
 class ListInputMapping(InputMapping):
   def __init__(self, lengths, max_len, element_input_mapping: InputMapping):
@@ -225,11 +214,10 @@ class ListInputMapping(InputMapping):
     for l in range(len(self.lengths)):
       for i in range(batch_size):
         if self.lengths[i] > l:
-          ps[:,i,l] += self.element_input_mapping.get_perturbations(k, probs[i,l*len(self.elements):(l+1)*len(self.elements)].unsqueeze(0)).squeeze(1) # TODO
+          p = probs[i,l*len(self.elements):(l+1)*len(self.elements)].unsqueeze(0)
+          if p.sum() == 0: continue
+          ps[:,i,l] += self.element_input_mapping.get_perturbations(k, p).squeeze(1)
     return ps.flatten(2)
-  
-  def return_elements(self):
-    return self.elements
 
 class OutputMapping:
   def __init__(self): pass
