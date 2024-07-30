@@ -73,7 +73,7 @@ class BlackBoxFunction(torch.autograd.Function):
         # Prepare the inputs to the black-box function  
         to_compute_inputs = []
         for (input_i, input_mappings_i) in zip(inputs, input_mappings):
-            sampled_element_i = [input_mappings_i.get_elements(input_i_example) for input_i_example in input_i]
+            sampled_element_i = input_mappings_i.get_elements(input_i)
             to_compute_inputs.append(sampled_element_i)
         to_compute_inputs = zip_batched_inputs(to_compute_inputs)
 
@@ -112,52 +112,60 @@ class BlackBoxFunction(torch.autograd.Function):
     
     def finite_difference(input_mappings, output_mapping, output, perts, ys, *inputs):
         batch_size = inputs[0].shape[0]
-
+        
         # Compute the jacobian for each input
         jacobian = []
-        for input_i, pert_i, y_i, mapping_i in zip(inputs, perts, ys, input_mappings):
-          input_dim = input_i.shape[1]
-          jacobian_i = torch.zeros(batch_size, output.shape[1], input_dim)
+        for n, (input_i, pert_i, y_i, mapping_i) in enumerate(zip(inputs, perts, ys, input_mappings)):
+            input_dim = input_i.shape[1]
+            jacobian_i = torch.zeros(batch_size, output.shape[1], input_dim)
             
-          for i, y in zip(pert_i, y_i):                
-            # Compute the corresponding change in the output
-            if type(output_mapping) == UnknownDiscreteOutputMapping:
-              y = F.pad(y, (0, output.shape[1]-y.shape[1], 0, 0)) 
-              y = F.softmax(y, dim=-1)
-            elif type(output_mapping) == DiscreteOutputMapping:
-              y = F.softmax(y, dim=-1)
-            y = y - output  
+            eps = input_i.max(dim=1).values.unsqueeze(1) - input_i
 
-            # Update the jacobian, weighted by the probability of the unchanged inputs
-            if type(mapping_i) == DiscreteInputMapping:
-              i = i[0].argmax()
-              t = y.unsqueeze(1).repeat(1, batch_size, 1)*(input_i[:,i].unsqueeze(-1).unsqueeze(-1))
-              jacobian_i[:,:,i] += t.sum(dim=0)
+            for i, y in zip(pert_i, y_i):                
+                # Compute the corresponding change in the output
+                if type(output_mapping) == UnknownDiscreteOutputMapping:
+                    y = F.pad(y, (0, output.shape[1]-y.shape[1], 0, 0)) 
+                    y = F.softmax(y, dim=1)
+                elif type(output_mapping) == DiscreteOutputMapping:
+                    y = F.softmax(y, dim=1)
+                y = y - output  
 
-              c3 = input_i.argmax(dim=1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).repeat(1,batch_size,output.shape[1],input_dim)
-              v3 = torch.arange(input_dim).unsqueeze(0).unsqueeze(1).unsqueeze(2)
-              jacobian_i -= torch.where(c3==v3, t.unsqueeze(-1).repeat(1,1,1,input_dim), 0).sum(dim=0)
+                # Update the jacobian, weighted by the probability of the unchanged inputs
+                if type(mapping_i) == DiscreteInputMapping:
+                    i = i[0].argmax()
+                    
+                    eps_i = eps[:,i].unsqueeze(-1).repeat(batch_size,1,output.shape[1])
+                    t = y.unsqueeze(1).repeat(1, batch_size, 1)*(input_i[:,i].unsqueeze(-1).unsqueeze(-1))
+                    t = torch.where(eps_i==0, 0, t)
+                    jacobian_i[:,:,i] += t.sum(dim=0)
+
+                    c3 = input_i.argmax(dim=1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).repeat(1,batch_size,output.shape[1],input_dim)
+                    v3 = torch.arange(input_dim).unsqueeze(0).unsqueeze(1).unsqueeze(2)
+                    jacobian_i -= torch.where(c3==v3, t.unsqueeze(-1).repeat(1,1,1,input_dim), 0).sum(dim=0)
                 
-            elif type(mapping_i) == ListInputMapping:
-              element_len = len(mapping_i.return_elements()) 
-              max_det = inputs[0].shape[1] // element_len
-                
-              for j in range(max_det):
-                i_j = i[:,j*element_len:(j+1)*element_len]
-                input_i_j = input_i[:,j*element_len:(j+1)*element_len]
-                for b in range(batch_size):
-                  if torch.all(i_j[b] == input_i_j[b]):
-                    continue
+                elif type(mapping_i) == ListInputMapping:
+                    element_len = len(mapping_i.return_elements()) 
+                    max_det = inputs[0].shape[1] // element_len
+                    for j in range(max_det):
+                        i_j = i[:,j*element_len:(j+1)*element_len]
+                        input_i_j = input_i[:,j*element_len:(j+1)*element_len]
+                        for b in range(batch_size):
+                            if torch.all(i_j[b] == input_i_j[b]):
+                                continue
 
-                  i2 = i_j[b].argmax()     
-                  t = y[b].unsqueeze(0)*(input_i_j[:i2].unsqueeze(-1).unsqueeze(-1))
-                  jacobian_i[:,:,j*element_len+i2] += t
+                            i2 = i_j[b].argmax()
+                            
+                            # Update the jacobian, weighted by the probability of the unchanged inputs
+                            eps_i = eps[:,i2].unsqueeze(-1).repeat(1,output.shape[1])
+                            t = y[b].unsqueeze(0)*(input_i_j[:,i2].unsqueeze(-1))
+                            t = torch.where(eps_i==0, 0, t)
+                            jacobian_i[:,:,j*element_len+i2] += t
 
-                  c3 = input_i_j.argmax(dim=1).unsqueeze(-1).unsqueeze(-1)
-                  v3 = torch.arange(element_len).unsqueeze(0).unsqueeze(1)
-                  jacobian_i[:,:,j*element_len:(j+1)*element_len] -= torch.where(c3==v3, t.unsqueeze(-1), 0)
+                            c3 = input_i_j.argmax(dim=1).unsqueeze(-1).unsqueeze(-1)
+                            v3 = torch.arange(element_len).unsqueeze(0).unsqueeze(1)
+                            jacobian_i[:,:,j*element_len:(j+1)*element_len] -= torch.where(c3==v3, t.unsqueeze(-1), 0)
 
-          jacobian.append(jacobian_i)
+            jacobian.append(jacobian_i)
         
         return tuple(jacobian)
 
