@@ -261,6 +261,21 @@ class UnknownDiscreteOutputMapping(OutputMapping):
       if results[i][0] != RESERVED_FAILURE:
         result_tensor[i][element_indices[results[i][0]]] += 1
     return (elements, result_tensor) 
+  
+class ListOutputMapping(OutputMapping):
+  def __init__(self, elements: List[Any]):
+    self.elements = elements
+  
+  def vectorize(self, results:List, y_elements) -> torch.Tensor:
+    batch_size = len(results)
+    result_tensor = torch.zeros((batch_size, len(self.elements)))
+    for i in range(batch_size):
+      if results[i][0] != RESERVED_FAILURE:
+        for item in results[i][0]:
+          if item != 'skip' and item != 'ball':
+            result_tensor[i][self.elements.index(item)] += 1
+
+    return (self.elements, result_tensor)
 
 class BinaryOutputMapping(OutputMapping):
   def __init__(self):

@@ -8,14 +8,14 @@ import os
 import random
 
 from dataset import scene_loader, scenes, SceneNet, objects, Trainer, objects_long
-from torch_modules.finite_difference import FiniteDifference, ListInputMapping, DiscreteInputMapping, DiscreteOutputMapping
+from torch_modules.finite_difference import FiniteDifference, ListInputMapping, DiscreteInputMapping, ListOutputMapping
 from scene.configs import classify_compose
 
 class ISEDLinearNet(nn.Module):
   def __init__(self):
     super(ISEDLinearNet, self).__init__()
-    self.linear1 = nn.Linear(100, 100)
-    self.linear2 = nn.Linear(100, 9)
+    self.linear1 = nn.Linear(98, 98)
+    self.linear2 = nn.Linear(98, 9)
 
   def forward(self, x):
     x = F.relu(self.linear1(x))
@@ -34,12 +34,12 @@ class ISEDSceneNet(nn.Module):
       bbox = FiniteDifference(**{
         "bbox": classify_compose,
         "input_mappings": (ListInputMapping(box_len, self.max_det, DiscreteInputMapping(objects)),),
-        "output_mapping": DiscreteOutputMapping(objects_long),
+        "output_mapping": ListOutputMapping(objects_long),
         })
       x = [F.pad(x[box_len[:i].sum():box_len[:i+1].sum()], (0, 0, 0, self.max_det-box_len[i])) for i in range(len(box_len))]
       x = torch.stack(x, dim=0).flatten(1)
-      x = bbox(x)
-      x = ISEDLinearNet(x)
+      _, probs = bbox(x)
+      x = self.linear_net(probs)
       return x
 
 if __name__ == "__main__":
