@@ -108,6 +108,8 @@ class BlackBoxFunction(torch.autograd.Function):
         output = F.softmax(output, dim=-1)
       elif type(output_mapping) == DiscreteOutputMapping:
         output = F.softmax(output, dim=-1)
+      elif type(output_mapping) == ListOutputMapping:
+        output = F.softmax(output, dim=-1)
       return output, perts, ys, y_elements  
     
     def finite_difference(input_mappings, output_mapping, output, perts, ys, *inputs):
@@ -128,7 +130,9 @@ class BlackBoxFunction(torch.autograd.Function):
                     y = F.softmax(y, dim=1)
                 elif type(output_mapping) == DiscreteOutputMapping:
                     y = F.softmax(y, dim=1)
-                y = y - output  
+                elif type(output_mapping) == ListOutputMapping:
+                    y = F.softmax(y, dim=1)
+                y = y - output
 
                 # Update the jacobian, weighted by the probability of the unchanged inputs
                 if type(mapping_i) == DiscreteInputMapping:
