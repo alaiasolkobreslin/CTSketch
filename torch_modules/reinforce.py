@@ -18,7 +18,6 @@ class REINFORCE(nn.Module):
         self.f = kwargs['bbox']
         self.k = kwargs['n_samples']
         self.input_mappings = kwargs['input_mappings']
-        self.output_mapping = kwargs['output_mapping']
         self.fn_cache = {}
         self.caching = True
         self.timeout_seconds = 1
