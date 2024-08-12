@@ -15,7 +15,6 @@ from argparse import ArgumentParser
 from tqdm import tqdm
 
 from src import input
-from src import output
 
 from torch_modules import reinforce
 
