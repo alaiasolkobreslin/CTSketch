@@ -3,6 +3,7 @@
 import os
 import random
 from typing import *
+import inspect
 
 import torch
 import torchvision
@@ -27,99 +28,106 @@ mnist_img_transform = torchvision.transforms.Compose([
   )
 ])
 
-def sum_2(a, b):
-  return a + b
+def final_output(model, ground_truth, args, *preds):
+  bbox = eval(args.bbox)
+  cats = [torch.distributions.categorical.Categorical(pred) for pred in preds]
+  
+  samples = [cat.sample() for cat in cats]
 
-
-def validation(a, b):
-  a = a.argmax(dim=1)
-  b = b.argmax(dim=1)
-
-  predictions = torch.stack([torch.tensor(sum_2(a[i], b[i])) for i in range(len(a))])
-  return predictions
-
-def final_output(model,ground_truth, args, a, b):
-  d_a = torch.distributions.categorical.Categorical(a)
-  d_b = torch.distributions.categorical.Categorical(b)
-
-  s_a = d_a.sample()
-  s_b = d_b.sample()
-
-  model.saved_log_probs = d_a.log_prob(s_a)+d_b.log_prob(s_b)
+  model.saved_log_probs = sum([cat.log_prob(sample) for cat, sample in zip(cats, samples)])
 
   predictions = []
-  for i in range(len(s_a)):
-    prediction = sum_2(s_a[i], s_b[i])
+  for i in range(len(samples[0])):
+    prediction = bbox(*tuple([sample[i] for sample in samples]))
     predictions.append(prediction)
     reward = nasr.compute_reward(prediction,ground_truth[i])
     model.rewards.append(reward)
   
   return torch.stack(predictions)
 
-class MNISTSum2Dataset(torch.utils.data.Dataset):
+class MNISTRDataset(torch.utils.data.Dataset):
   def __init__(
     self,
     root: str,
-    length: int,
+    digit: int,
+    bbox: Callable,
     train: bool = True,
     transform: Optional[Callable] = None,
     target_transform: Optional[Callable] = None,
     download: bool = False,
   ):
+    self.digit = digit
+    self.bbox = bbox
     # Contains a MNIST dataset
-    self.mnist_dataset = torchvision.datasets.MNIST(
-      root,
-      train=train,
-      transform=transform,
-      target_transform=target_transform,
-      download=download,
+    if train: self.length = min(5000 * digit, 60000)
+    else: self.length = min(500 * digit, 10000)
+    self.mnist_dataset = torch.utils.data.Subset(
+      torchvision.datasets.MNIST(
+        root,
+        train=train,
+        transform=transform,
+        target_transform=target_transform,
+        download=download,
+      ),
+      range(self.length)
     )
-    self.length = length
     self.index_map = list(range(len(self.mnist_dataset)))
     random.shuffle(self.index_map)
 
+    self.sum_dataset = []
+    for i in range(len(self.mnist_dataset)//self.digit):
+      self.sum_dataset.append([])
+      for j in range(self.digit):
+        self.sum_dataset[i].append(self.mnist_dataset[self.index_map[i*self.digit + j]])
+    pass
+
   def __len__(self):
-    return self.length
+    return len(self.sum_dataset)
 
   def __getitem__(self, idx):
-    # Get two data points
-    (a_img, a_digit) = self.mnist_dataset[self.index_map[idx * 2]]
-    (b_img, b_digit) = self.mnist_dataset[self.index_map[idx * 2 + 1]]
+    item = self.sum_dataset[idx]
+    data, target = [], []
+    for (d,t) in item:
+      data.append(d)
+      target.append(t)
+    
+    target = self.bbox(*tuple(target))
 
-    # Each data has two images and the GT is the sum of two digits
-    return (a_img, b_img, a_digit + b_digit)
+    return (*tuple(data), target)
 
   @staticmethod
   def collate_fn(batch):
-    a_imgs = torch.stack([item[0] for item in batch])
-    b_imgs = torch.stack([item[1] for item in batch])
-    digits = torch.stack([torch.tensor(item[2]).long() for item in batch])
-    return ((a_imgs, b_imgs), digits)
+    imgs = []
+    for i in range(len(batch[0])-1):
+      imgs.append(torch.stack([item[i] for item in batch]))
+    digits = torch.stack([torch.tensor(item[-1]).long() for item in batch])
+    return (tuple(imgs), digits)
 
 
-def mnist_sum_2_loader(data_dir, batch_size_train, batch_size_test):
-    train_dataset = MNISTSum2Dataset(data_dir, length=5000, train=True, download=True, transform=mnist_img_transform)
-    train_set_size = len(train_dataset)
-    train_indices = list(range(train_set_size))
-    split = int(train_set_size * 0.8)
-    train_indices, val_indices = train_indices[:split], train_indices[split:]
-    train_loader = torch.utils.data.DataLoader(torch.utils.data.Subset(train_dataset, train_indices), collate_fn=MNISTSum2Dataset.collate_fn, batch_size=batch_size_train, shuffle=True)
-    valid_loader = torch.utils.data.DataLoader(torch.utils.data.Subset(train_dataset, val_indices), collate_fn=MNISTSum2Dataset.collate_fn, batch_size=batch_size_train, shuffle=True)
+def mnist_r_loader(data_dir, batch_size, digit, bbox):
+  train_dataset = MNISTRDataset(data_dir, digit, bbox, train=True, download=True, transform=mnist_img_transform)
+  train_set_size = len(train_dataset)
+  train_indices = list(range(train_set_size))
+  split = int(train_set_size * 0.8)
+  train_indices, val_indices = train_indices[:split], train_indices[split:]
+  train_loader = torch.utils.data.DataLoader(torch.utils.data.Subset(train_dataset, train_indices), collate_fn=MNISTRDataset.collate_fn, batch_size=batch_size, shuffle=True)
+  valid_loader = torch.utils.data.DataLoader(torch.utils.data.Subset(train_dataset, val_indices), collate_fn=MNISTRDataset.collate_fn, batch_size=batch_size, shuffle=True)
 
-    test_loader = torch.utils.data.DataLoader(
-        MNISTSum2Dataset(
-        data_dir,
-        length=500,
-        train=False,
-        download=True,
-        transform=mnist_img_transform,
-        ),
-        collate_fn=MNISTSum2Dataset.collate_fn,
-        batch_size=batch_size_test,
-        shuffle=True
-    )
+  test_loader = torch.utils.data.DataLoader(
+    MNISTRDataset(
+      data_dir,
+      digit,
+      bbox,
+      train=False,
+      download=True,
+      transform=mnist_img_transform,
+    ),
+    collate_fn=MNISTRDataset.collate_fn,
+    batch_size=batch_size,
+    shuffle=True
+  )
 
-    return train_loader, valid_loader, test_loader
+  return train_loader, valid_loader, test_loader
 
 
 class MNISTNet(nn.Module):
@@ -140,28 +148,30 @@ class MNISTNet(nn.Module):
     return F.softmax(x, dim=1)
 
 
-class MNISTSum2Net(nn.Module):
-  def __init__(self):
-    super(MNISTSum2Net, self).__init__()
+class MNISTRNet(nn.Module):
+  def __init__(self, digit):
+    super(MNISTRNet, self).__init__()
 
+    self.digit = digit
     # MNIST Digit Recognition Network
     self.mnist_net = MNISTNet()
 
+  def forward(self, x):
+    batch_size = x[0].shape[0]
+    x = torch.cat(x, dim=0)
 
-  def forward(self, x: Tuple[torch.Tensor, torch.Tensor]):
-    (a_imgs, b_imgs) = x
+    # First recognize the digits
+    x = self.mnist_net(x)
+    x = [x[i*batch_size:(i + 1) * batch_size,:] for i in range(self.digit)]
+    
+    return x
 
-    a_distrs = self.mnist_net(a_imgs)
-    b_distrs = self.mnist_net(b_imgs)
-
-    return (a_distrs, b_distrs)
-
-class RLSum2Net(nn.Module):
-  def __init__(self, **kwargs):
+class RLNet(nn.Module):
+  def __init__(self, digit, bbox):
     super().__init__()
     self.saved_log_probs = []
     self.rewards = []
-    self.perception = MNISTSum2Net()
+    self.perception = MNISTRNet(digit)
 
   def forward(self, x):
     return self.perception.forward(x)
@@ -174,9 +184,9 @@ def bce_loss(output, ground_truth):
 
 
 class Trainer():
-  def __init__(self, train_loader, test_loader, valid_loader, model, model_dir, final_output, args):
+  def __init__(self, train_loader, test_loader, valid_loader, model, model_dir, final_output, digit, args):
     self.model_dir = model_dir
-    self.network = MNISTSum2Net()
+    self.network = MNISTRNet(digit)
     self.optimizer = torch.optim.AdamW(self.network.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     self.train_loader = train_loader
     self.test_loader = test_loader
@@ -326,23 +336,29 @@ if __name__ == "__main__":
   parser.add_argument('--print-freq', default=5, type=int)
   parser.add_argument('--disable-cos', action='store_true')
   parser.add_argument('--warmup', default=0, type=int)
+  parser.add_argument("--bbox", type=str, default="lambda a, b: a + b")
   parser.add_argument('--gpu-id', default='cpu', type=str)
   args = parser.parse_args()
 
   torch.manual_seed(args.seed)
   random.seed(args.seed)
-
+  
+  # Determine number of digits
+  bbox = eval(args.bbox)
+  signature = inspect.signature(bbox)
+  digit = len(signature.parameters)
+  
   # Data
   data_dir = os.path.abspath(os.path.join(os.path.abspath(__file__), "../../data"))
   model_dir = os.path.abspath(os.path.join(os.path.abspath(__file__), "../../model/mnist_sum_2"))
   os.makedirs(model_dir, exist_ok=True)
 
   # Dataloaders
-  (train_loader, valid_loader, test_loader) = mnist_sum_2_loader(data_dir, args.batch_size, args.batch_size)
+  (train_loader, valid_loader, test_loader) = mnist_r_loader(data_dir, args.batch_size, digit, bbox)
 
-  model = RLSum2Net()
+  model = RLNet(digit, bbox)
   model.to(args.gpu_id)
 
   # Create trainer and train
-  trainer = Trainer(train_loader, valid_loader, test_loader, model, model_dir, final_output, args)
+  trainer = Trainer(train_loader, valid_loader, test_loader, model, model_dir, final_output, digit, args)
   trainer.train(args.epochs)

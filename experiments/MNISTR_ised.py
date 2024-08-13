@@ -42,7 +42,6 @@ class MNISTRDataset(torch.utils.data.Dataset):
     # Contains a MNIST dataset
     if train: self.length = min(5000 * digit, 60000)
     else: self.length = min(500 * digit, 10000)
-    self.digit = digit
     self.mnist_dataset = torch.utils.data.Subset(
       torchvision.datasets.MNIST(
         root,
