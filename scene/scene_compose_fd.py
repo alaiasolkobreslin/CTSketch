@@ -14,11 +14,11 @@ from scene.configs import classify_compose
 class ISEDLinearNet(nn.Module):
   def __init__(self):
     super(ISEDLinearNet, self).__init__()
-    self.linear1 = nn.Linear(98, 98)
-    self.linear2 = nn.Linear(98, 9)
+    # self.linear1 = nn.Linear(9, 9)
+    self.linear2 = nn.Linear(9, 9)
 
   def forward(self, x):
-    x = F.relu(self.linear1(x))
+    # x = F.relu(self.linear1(x))
     x = F.softmax(self.linear2(x), dim=1)
     return x
 
@@ -34,7 +34,7 @@ class ISEDSceneNet(nn.Module):
       bbox = FiniteDifference(**{
         "bbox": classify_compose,
         "input_mappings": (ListInputMapping(box_len, self.max_det, DiscreteInputMapping(objects)),),
-        "output_mapping": ListOutputMapping(objects_long),
+        "output_mapping": ListOutputMapping(scenes),
         })
       x = [F.pad(x[box_len[:i].sum():box_len[:i+1].sum()], (0, 0, 0, self.max_det-box_len[i])) for i in range(len(box_len))]
       x = torch.stack(x, dim=0).flatten(1)
@@ -48,7 +48,7 @@ if __name__ == "__main__":
   parser.add_argument("--n-epochs", type=int, default=100)
   parser.add_argument("--gpu", type=int, default=-1)
   parser.add_argument("--batch-size", type=int, default=16)
-  parser.add_argument("--learning-rate", type=float, default=5e-4)
+  parser.add_argument("--learning-rate", type=float, default=5e-3)
   parser.add_argument("--cuda", action="store_true")
   args = parser.parse_args()
 
