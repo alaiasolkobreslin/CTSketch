@@ -53,6 +53,45 @@ def call_llm(objects):
     return ans
   raise Exception("LLM failed to provide an answer") 
 
+def classify_llm_single(objects):
+  random_scene = ['basement', 'bathroom', 'bedroom', 'dining', 'kitchen', 'lab', 'living', 'lobby', 'office']
+  random.shuffle(random_scene)
+  answer = call_llm(objects)
+  counts = torch.zeros(9)
+  for a in answer:
+    s = parse_response(a)
+    if s in random_scene:
+      counts[random_scene.index(s)] += 1
+  return random_scene[counts.argmax()]
+
+def call_llm_single(objects):
+  r = []
+  for o in objects:
+    if o == 'skip' or o == 'ball': 
+      continue
+    prompt = f"There is a {o}."
+    if o in queries.keys():
+      r.append(queries[o])
+      continue
+    response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                  {"role": "system", "content": system_msg},
+                  {"role": "user", "content": prompt + question}
+                ],
+                top_p=1e-8
+              )
+    if response.choices[0].finish_reason == 'stop':
+      ans = response.choices[0].message.content.lower()
+      print(ans)
+      queries[o] = ans
+      with open('scene/llm_single.pkl', 'wb') as f:
+        pickle.dump(queries, f)
+      r.append(ans)
+    else: 
+      raise Exception("LLM failed to provide an answer") 
+  return r
+
 def parse_response(answer):
   random_scene = ['basement', 'bathroom', 'bedroom', 'dining', 'kitchen', 'lab', 'living', 'lobby', 'office']
   random.shuffle(random_scene)
