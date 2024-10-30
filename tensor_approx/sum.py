@@ -52,10 +52,14 @@ class Trainer():
     p = inputs[0]
     batch_size = p.shape[0]
     for i in range(1, self.digit):
-      p1 = p.unsqueeze(-1)
-      p2 = inputs[i].unsqueeze(1)
+      p1 = p.unsqueeze(-1) # p1 is the last einsum result
+      p2 = inputs[i].unsqueeze(1) # p2 is the current input
+      # eqn determines the shape of the einsum
       eqn = f'{"".join([chr(j + 97) for j in range(0, i+2)])}, a{"".join([chr(i + 97) for i in range(i+1, i+3)])} -> {"".join([chr(j + 97) for j in range(0, i+1)])}{chr(i+97+2)}'
-      p = torch.einsum(eqn, p1, p2)
+      
+      # example einsum: p1 is shape 16x10x1, p2 is shape 16x1x10
+      # p (result) shape is 16x10x10
+      p = torch.einsum(eqn, p1, p2) # p is the multiplication of p1 with the next input
     output = torch.zeros(batch_size, self.output_dim).to(device).scatter_add_(1, t.flatten().repeat(batch_size, 1), p.flatten(1))
     return output
   
@@ -121,10 +125,10 @@ if __name__ == "__main__":
   parser.add_argument("--n-epochs", type=int, default=100)
   parser.add_argument("--batch-size", type=int, default=16)
   parser.add_argument("--learning-rate", type=float, default=1e-4)
-  parser.add_argument("--method", type=str, default='tt')
+  parser.add_argument("--method", type=str, default='hooi')
   parser.add_argument("--seed", type=int, default=1234)
   parser.add_argument("--jit", action="store_true")
-  parser.add_argument("--digits", type=int, default=2)
+  parser.add_argument("--digits", type=int, default=4)
   parser.add_argument("--dispatch", type=str, default="parallel")
   args = parser.parse_args()
 

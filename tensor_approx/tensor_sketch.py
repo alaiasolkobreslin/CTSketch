@@ -12,13 +12,14 @@ class TensorSketch():
     def approx_theta(self, configs):
         gt1 = configs['gt1'] if 'gt1' in configs else None
         gt2 = configs['gt2'] if 'gt2' in configs else None
+        gt3 = configs['gt3'] if 'gt3' in configs else None
         digit = configs['digit'] if 'gt1' in configs else None
         components = configs['components'] if 'gt1' in configs else None
         
         if self.method == 'tt':
             return self.tt_approx(gt1, gt2, digit, components)
         elif self.method == 'hooi':
-            return self.hooi_approx(gt1, gt2, digit, components)
+            return self.hooi_approx(gt1, gt2, gt3, digit, components)
         else: raise Exception(f"{self.method} not implemented.")
 
     def tt_approx(self, gt, digits, components):
@@ -30,9 +31,10 @@ class TensorSketch():
         X_hat = torch.minimum(torch.maximum(X_hat, torch.zeros_like(X_hat)), torch.ones_like(X_hat)*(digits*9))
         return rerr, 
 
-    def hooi_approx(self, gt1, gt2, digit, components):
+    def hooi_approx(self, gt1, gt2, gt3, digit, components):
         X1 = gt1.cpu().numpy()
         X2 = gt2.cpu().numpy()
+        X3 = gt3.cpu().numpy()
         # X, ranks, ks, ss, where ks is the reduced dimension of the arm tensors
         tapprox1 = TensorApprox(X1, [2]*digit, [5]*digit, [11]*digit)
         X_hat1, _, _, rerr1, (_, _) = tapprox1.tensor_approx("twopass") 
@@ -42,4 +44,8 @@ class TensorSketch():
         X_hat2, _, _, rerr2, (_, _) = tapprox2.tensor_approx("twopass") 
         X_hat2 = torch.from_numpy(X_hat2).round()
         X_hat2 = torch.minimum(torch.maximum(X_hat2, torch.zeros_like(X_hat2)), torch.ones_like(X_hat2)*(digit*9))
-        return rerr1, rerr2, X_hat1.long(), X_hat2.long()
+        tapprox3 = TensorApprox(X3, [2]*components, [15]*components, [44]*components)
+        X_hat3, _, _, rerr3, (_, _) = tapprox3.tensor_approx("twopass") 
+        X_hat3 = torch.from_numpy(X_hat3).round()
+        X_hat3 = torch.minimum(torch.maximum(X_hat3, torch.zeros_like(X_hat3)), torch.ones_like(X_hat3)*(digit*9))
+        return rerr1, rerr2, rerr3, X_hat1.long(), X_hat2.long(), X_hat3.long()

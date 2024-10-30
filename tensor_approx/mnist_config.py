@@ -25,30 +25,28 @@ class MNISTSumDataset(torch.utils.data.Dataset):
   ):
     self.digit = digit
     # Contains a MNIST dataset
-    if train: self.length = 60000 # min(5000 * digit, 60000)
-    else: self.length = 10000 # min(500 * digit, 10000)
+    if train: self.length = 30000 # min(5000 * digit, 60000)
+    else: self.length = 5000 # min(500 * digit, 10000)
     self.digit = digit
-    self.mnist_dataset = torch.utils.data.Subset(
-      torchvision.datasets.MNIST(
-        root,
-        train=train,
-        transform=transform,
-        target_transform=target_transform,
-        download=download,
-      ),
-      range(self.length)
+    self.mnist_dataset = torchvision.datasets.MNIST(
+      root,
+      train=train,
+      transform=transform,
+      target_transform=target_transform,
+      download=download,
     )
     self.index_map = list(range(len(self.mnist_dataset)))
     random.shuffle(self.index_map)
 
     self.sum_dataset = []
-    for i in range(len(self.mnist_dataset)//self.digit):
+    for i in range(self.length):
       self.sum_dataset.append([])
-      for j in range(self.digit):
-        self.sum_dataset[i].append(self.mnist_dataset[self.index_map[i*self.digit + j]])
+      for _ in range(self.digit):
+        random_idx = random.randint(0, len(self.mnist_dataset)-1)
+        self.sum_dataset[i].append(self.mnist_dataset[self.index_map[random_idx]])
 
   def __len__(self):
-    return len(self.sum_dataset)
+    return self.length
 
   def __getitem__(self, idx):
     # Get two data points
@@ -71,6 +69,17 @@ class MNISTSumDataset(torch.utils.data.Dataset):
     digits = torch.stack([torch.tensor(item[-1]).long() for item in batch])
     return (tuple(imgs), digits)
 
+def mnist_loader(data_dir, batch_size):
+  return torch.utils.data.DataLoader(
+    torchvision.datasets.MNIST(
+      data_dir,
+      train=True,
+      download=True,
+      transform=mnist_img_transform,
+    ),
+    batch_size=batch_size,
+    shuffle=True
+  )
 
 def mnist_sum_loader(data_dir, batch_size, digit):
   train_loader = torch.utils.data.DataLoader(
