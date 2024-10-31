@@ -30,10 +30,6 @@ def full_theta(digit, samples):
   return t
 
 def full_theta_layer2(digit, components, samples):
-  # digit is number of digits input to first layer
-  #   each component has maximum output of digit*9 + 1
-  # second layer has #inputs = components
-  #   second layer has maximum output of digit * components)*9 + 1
   xs = []
   for i in range(int(digit/components)):
     xs.append(torch.randint(0, digit*9, (samples,)))
@@ -58,35 +54,41 @@ class Trainer():
     self.digit = digit
     self.components = components
     self.t1 = full_theta(2, 0).detach() # hard code t1 to sum 2 digits (layer 1)
-    self.t2 = full_theta_layer2(2, 2, 1000).detach() # hard code t2 to sum 4 digits (layer 2)
-    self.t3 = full_theta_layer2(4, 2, 10000).detach() # hard code t3 to sum 8 digits (layer 3)
+    self.t2 = full_theta_layer2(2, 2, 5000).detach() # hard code t2 to sum 4 digits (layer 2)
+    self.t3 = full_theta_layer2(4, 2, 20000).detach() # hard code t3 to sum 8 digits (layer 3)
     self.gt1 = self.t1.clone() # cheating - shouldn't be saving this
     self.gt2 = self.t2.clone()
     self.gt3 = self.t3.clone()
     self.tensorsketch = TensorSketch(tensor_method)
     self.save_model = save_model
   
-  def target_t1(self, *inputs):
+  def target_t1(self, digit, *inputs):
     ps = []
     for input_i in inputs[:2]:
-      ps.append(torch.randint(0, 10, (input_i.shape[0]*self.digit*10,)).flatten())
+      ps.append(torch.randint(0, 10, (input_i.shape[0]*digit*10,)).flatten())
     ps = torch.stack(ps, dim=-1)
     for sample_i in ps:
       s_i = tuple(sample_i.tolist())
       self.gt1[s_i] = sum(s_i)
       
-  def target_t2(self, digit, components, gt, *inputs):
+  def target_t2(self, digit, *inputs):
     ps = []
-    batch_size = inputs[0].shape[0]
-    for i in range(self.components):
-      # self.digit * 10 would mean 40 -> 10x10x10x10
-      # we want 19x19 which means we should have components * (9*digit +)
-      ps.append(torch.randint(0, (9*(int(digit/components)))+1, (batch_size*(components * (9*(int(digit/components)) +1)),)).flatten())
+    for input_i in inputs[:2]:
+      ps.append(torch.randint(0, 9*digit+1, (input_i.shape[0]*digit*100,)).flatten())
     ps = torch.stack(ps, dim=-1)
     for sample_i in ps:
       s_i = tuple(sample_i.tolist())
-      gt[s_i] = sum(s_i)
-  
+      self.gt2[s_i] = sum(s_i)
+      
+  def target_t3(self, digit, *inputs):
+    ps = []
+    for input_i in inputs[:2]:
+      ps.append(torch.randint(0, 18*digit+1, (input_i.shape[0]*digit*100,)).flatten())
+    ps = torch.stack(ps, dim=-1)
+    for sample_i in ps:
+      s_i = tuple(sample_i.tolist())
+      self.gt3[s_i] = sum(s_i)
+    
   def program(self, *inputs):
     t1 = self.t1.to(device).clamp(0, 18)
     t2 = self.t2.to(device).clamp(0, 36)
@@ -107,14 +109,6 @@ class Trainer():
         p_out = torch.zeros(batch_size, 19).to(device).scatter_add_(1, t1.flatten().repeat(batch_size, 1), p_out.flatten(1))
         p_outs.append(p_out)
         
-    # p_out = p_outs[0]
-    # for i in range(1, 2):
-    #     p1 = p_out.unsqueeze(-1)
-    #     p2 = p_outs[i].unsqueeze(1)
-    #     eqn = f'{"".join([chr(j + 97) for j in range(0, i+2)])}, a{"".join([chr(i + 97) for i in range(i+1, i+3)])} -> {"".join([chr(j + 97) for j in range(0, i+1)])}{chr(i+97+2)}'
-    #     p_out = torch.einsum(eqn, p1, p2)
-    # output = torch.zeros(batch_size, 37).to(device).scatter_add_(1, t2.flatten().repeat(batch_size, 1), p_out.flatten(1))
-        
     p_outs2 = []
     for k in range(2):
         p_out = p_outs[k*2]
@@ -134,17 +128,6 @@ class Trainer():
     output = torch.zeros(batch_size, 73).to(device).scatter_add_(1, t3.flatten().repeat(batch_size, 1), p_out.flatten(1))
         
     return output
-        
-        
-    # p = inputs[0]
-    # batch_size = p.shape[0]
-    # for i in range(1, self.digit):
-    #   p1 = p.unsqueeze(-1)
-    #   p2 = inputs[i].unsqueeze(1)
-    #   eqn = f'{"".join([chr(j + 97) for j in range(0, i+2)])}, a{"".join([chr(i + 97) for i in range(i+1, i+3)])} -> {"".join([chr(j + 97) for j in range(0, i+1)])}{chr(i+97+2)}'
-    #   p = torch.einsum(eqn, p1, p2)
-    # output = torch.zeros(batch_size, self.output_dim).to(device).scatter_add_(1, t.flatten().repeat(batch_size, 1), p.flatten(1))
-    # return output
   
   def loss(self, output, ground_truth):
     dim = output.shape[1]
@@ -160,9 +143,9 @@ class Trainer():
     for (data, target) in iter:
       self.optimizer.zero_grad()
       output_t = self.network(tuple([data_i.to(device) for data_i in data]))
-      self.target_t1(*tuple(output_t))
-      self.target_t2(2, 2, self.gt2, *tuple(output_t))
-      self.target_t2(4, 2, self.gt3, *tuple(output_t))
+      self.target_t1(2, *tuple(output_t))
+      self.target_t2(2, *tuple(output_t))
+      self.target_t3(2, *tuple(output_t))
       rerr1, rerr2, rerr3, X_hat1, X_hat2, X_hat3 = self.tensorsketch.approx_theta({'gt1': self.gt1, 'gt2': self.gt2, 'gt3': self.gt3, 'digit': self.digit, 'components': 2})
       self.t1 = X_hat1
       self.t2 = X_hat2
