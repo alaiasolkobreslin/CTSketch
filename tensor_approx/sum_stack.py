@@ -4,6 +4,7 @@ from typing import *
 from tqdm import tqdm
 
 import torch
+import math
 import torch.nn.functional as F
 import torch.optim as optim
 
@@ -18,23 +19,12 @@ import seaborn as sn
 import pandas as pd
 import numpy as np
 
-def full_theta(digit, samples):
+def full_theta(inputs, max_input, samples):
   xs = []
-  for i in range(digit):
-    xs.append(torch.randint(0, 10, (samples,)))
+  for i in range(inputs):
+    xs.append(torch.randint(0, max_input, (samples,)))
   xs = torch.stack(xs, dim=0)
-  t = torch.randint(0, digit*9+1, tuple([10]*digit))
-  for i in range(samples):
-    x_i = tuple(xs[:, i].tolist())
-    t[x_i] = sum(x_i)
-  return t
-
-def full_theta_layer2(digit, components, samples):
-  xs = []
-  for i in range(int(digit/components)):
-    xs.append(torch.randint(0, digit*9, (samples,)))
-  xs = torch.stack(xs, dim=0)
-  t = torch.randint(0, digit*components*9 + 1, tuple([digit*9+1]*components))
+  t = torch.randint(0, max_input + 1, tuple([max_input]*inputs))
   for i in range(samples):
     x_i = tuple(xs[:, i].tolist())
     t[x_i] = sum(x_i)
@@ -42,7 +32,7 @@ def full_theta_layer2(digit, components, samples):
 
 
 class Trainer():
-  def __init__(self, model, tensor_method, digit, components, train_loader, test_loader, mnist_loader, model_dir, learning_rate, save_model=False):
+  def __init__(self, model, tensor_method, digit, layers, train_loader, test_loader, mnist_loader, model_dir, learning_rate, save_model=False):
     self.model_dir = model_dir
     self.network = model(digit).to(device)
     self.optimizer = optim.Adam(self.network.parameters(), lr=learning_rate)
@@ -52,42 +42,60 @@ class Trainer():
     self.best_loss = 10000000000
     self.output_dim = digit*9 + 1
     self.digit = digit
-    self.components = components
-    self.t1 = full_theta(2, 0).detach() # hard code t1 to sum 2 digits (layer 1)
-    self.t2 = full_theta_layer2(2, 2, 5000).detach() # hard code t2 to sum 4 digits (layer 2)
-    self.t3 = full_theta_layer2(4, 2, 20000).detach() # hard code t3 to sum 8 digits (layer 3)
-    self.gt1 = self.t1.clone() # cheating - shouldn't be saving this
-    self.gt2 = self.t2.clone()
-    self.gt3 = self.t3.clone()
+    self.layers = layers
+    self.initialize_theta()
+    self.initialize_gt()
     self.tensorsketch = TensorSketch(tensor_method)
     self.save_model = save_model
+    
+  def initialize_theta(self):
+    self.theta = []
+    for i in range(self.layers):
+      self.theta.append(full_theta(2, 2**i * 9, 5000 * i).detach())
+      
+  def initialize_gt(self):
+    self.gt = list(map(lambda x: x.clone(), self.theta))
+    
+  def update_target(self, *inputs):
+    # batch_size = inputs[0][0].shape[0]
+    for i in range(self.layers):
+      self.target_t(i, inputs[0].shape[0])
+    
+  def target_t(self, layer, output_shape):
+    ps = []
+    for _ in range(2):
+      ps.append(torch.randint(0, 9*(2**layer)+1, output_shape*(10**layer)).flatten())
+    ps = torch.stack(ps, dim=-1)
+    for sample_i in ps:
+      s_i = tuple(sample_i.tolist())
+      self.gt[layer][s_i] = sum(s_i)
   
-  def target_t1(self, digit, *inputs):
-    ps = []
-    for input_i in inputs[:2]:
-      ps.append(torch.randint(0, 10, (input_i.shape[0]*digit*10,)).flatten())
-    ps = torch.stack(ps, dim=-1)
-    for sample_i in ps:
-      s_i = tuple(sample_i.tolist())
-      self.gt1[s_i] = sum(s_i)
+#   def target_t1(self, digit, *inputs):
+#     ps = []
+#     for input_i in inputs[:2]:
+#       ps.append(torch.randint(0, 10, (input_i.shape[0]*digit*10,)).flatten())
+#     ps = torch.stack(ps, dim=-1)
+#     for sample_i in ps:
+#       s_i = tuple(sample_i.tolist())
+#       self.gt1[s_i] = sum(s_i)
       
-  def target_t2(self, digit, *inputs):
-    ps = []
-    for input_i in inputs[:2]:
-      ps.append(torch.randint(0, 9*digit+1, (input_i.shape[0]*digit*100,)).flatten())
-    ps = torch.stack(ps, dim=-1)
-    for sample_i in ps:
-      s_i = tuple(sample_i.tolist())
-      self.gt2[s_i] = sum(s_i)
+#   def target_t2(self, digit, *inputs):
+#     ps = []
+#     for input_i in inputs[:2]:
+#       ps.append(torch.randint(0, 9*digit+1, (input_i.shape[0]*digit*100,)).flatten())
+#     ps = torch.stack(ps, dim=-1)
+#     for sample_i in ps:
+#       s_i = tuple(sample_i.tolist())
+#       self.gt2[s_i] = sum(s_i)
       
-  def target_t3(self, digit, *inputs):
-    ps = []
-    for input_i in inputs[:2]:
-      ps.append(torch.randint(0, 18*digit+1, (input_i.shape[0]*digit*100,)).flatten())
-    ps = torch.stack(ps, dim=-1)
-    for sample_i in ps:
-      s_i = tuple(sample_i.tolist())
-      self.gt3[s_i] = sum(s_i)
+#   def target_t3(self, digit, *inputs):
+#     ps = []
+#     for input_i in inputs[:2]:
+#       ps.append(torch.randint(0, 18*digit+1, (input_i.shape[0]*digit*100,)).flatten())
+#     ps = torch.stack(ps, dim=-1)
+#     for sample_i in ps:
+#       s_i = tuple(sample_i.tolist())
+#       self.gt3[s_i] = sum(s_i)
     
   def program(self, *inputs):
     t1 = self.t1.to(device).clamp(0, 18)
@@ -143,13 +151,11 @@ class Trainer():
     for (data, target) in iter:
       self.optimizer.zero_grad()
       output_t = self.network(tuple([data_i.to(device) for data_i in data]))
-      self.target_t1(2, *tuple(output_t))
-      self.target_t2(2, *tuple(output_t))
-      self.target_t3(2, *tuple(output_t))
-      rerr1, rerr2, rerr3, X_hat1, X_hat2, X_hat3 = self.tensorsketch.approx_theta({'gt1': self.gt1, 'gt2': self.gt2, 'gt3': self.gt3, 'digit': self.digit, 'components': 2})
-      self.t1 = X_hat1
-      self.t2 = X_hat2
-      self.t3 = X_hat3
+      self.update_target(*tuple(output_t))
+      rerr1, rerr2, rerr3, X_hat1, X_hat2, X_hat3 = self.tensorsketch.approx_theta({'gt1': self.gt[0], 'gt2': self.gt[1], 'gt3': self.gt[2], 'digit': self.digit, 'components': 2})
+      self.theta[0] = X_hat1
+      self.theta[1] = X_hat2
+      self.theta[2] = X_hat3
       output = self.program(*tuple(output_t))
       output = F.normalize(output, dim=-1)
       
@@ -219,8 +225,8 @@ if __name__ == "__main__":
   parser.add_argument("--method", type=str, default='hooi')
   parser.add_argument("--seed", type=int, default=1234)
   parser.add_argument("--jit", action="store_true")
-  parser.add_argument("--digits", type=int, default=8)
-  parser.add_argument("--components", type=int, default=2)
+  parser.add_argument("--digits", type=int, default=8) # only supports digits that are powers of 2
+  parser.add_argument("--compose", type=bool, default=True)
   parser.add_argument("--dispatch", type=str, default="parallel")
   args = parser.parse_args()
 
@@ -229,7 +235,8 @@ if __name__ == "__main__":
   batch_size = args.batch_size
   learning_rate = args.learning_rate
   digit = args.digits
-  components = args.components
+  layers = int(math.log2(digit))
+
   method = args.method
 
   torch.manual_seed(args.seed)
@@ -248,5 +255,5 @@ if __name__ == "__main__":
   digit_loader = mnist_loader(data_dir, batch_size)
 
   # Create trainer and train
-  trainer = Trainer(MNISTSumNet, method, digit, components, train_loader, test_loader, digit_loader, model_dir, learning_rate)
+  trainer = Trainer(MNISTSumNet, method, digit, layers, train_loader, test_loader, digit_loader, model_dir, learning_rate)
   trainer.train(n_epochs)
