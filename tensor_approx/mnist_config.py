@@ -25,8 +25,8 @@ class MNISTSumDataset(torch.utils.data.Dataset):
   ):
     self.digit = digit
     # Contains a MNIST dataset
-    if train: self.length = 1 # min(5000 * digit, 60000)
-    else: self.length = 1 # min(500 * digit, 10000)
+    if train: self.length = 30000 # min(5000 * digit, 60000)
+    else: self.length = 5000 # min(500 * digit, 10000)
     self.digit = digit
     self.mnist_dataset = torchvision.datasets.MNIST(
       root,

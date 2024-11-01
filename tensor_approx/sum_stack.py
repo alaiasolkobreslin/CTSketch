@@ -51,7 +51,7 @@ class Trainer():
   def initialize_theta(self):
     self.theta = []
     for i in range(self.layers):
-      self.theta.append(full_theta(2, 2**i * 9, 5000 * i).detach())
+      self.theta.append(full_theta(2, 2**i * 9, 500 if i == 0 else 5000 if i == 1 else 20000).detach())
       
   def initialize_gt(self):
     self.gt = list(map(lambda x: x.clone(), self.theta))
@@ -71,7 +71,7 @@ class Trainer():
       self.gt[layer][s_i] = sum(s_i)
     
   def program(self, *inputs):
-    thetas = [self.theta[i].to(device) for i in range(self.layers)]
+    thetas = [self.theta[i].to(device).clamp(0, 9*2**(i+1)) for i in range(self.layers)]
       
     # t1 = self.t1.to(device).clamp(0, 18)
     # t2 = self.t2.to(device).clamp(0, 36)
@@ -83,13 +83,13 @@ class Trainer():
     for i in range(self.layers):
       t = thetas[i]
       p_outs = []
-      for k in range(self.digit//2**i):
+      for k in range(self.digit//2**(i+1)):
         p_out = ps[k*2]
         p1 = p_out.unsqueeze(-1)
         p2 = ps[(k*2)+1].unsqueeze(1)
         eqn = f'{"".join([chr(j + 97) for j in range(0, 3)])}, a{"".join([chr(i+97) for i in range(2, 4)])} -> {"".join([chr(j + 97) for j in range(0, 2)])}{chr(100)}'
         p_out = torch.einsum(eqn, p1, p2)
-        p_out = torch.zeros(batch_size, 9*(2**i)+1).to(device).scatter_add_(1, t.flatten().repeat(batch_size, 1), p_out.flatten(1))
+        p_out = torch.zeros(batch_size, 9*(2**(i+1))+1).to(device).scatter_add_(1, t.flatten().repeat(batch_size, 1), p_out.flatten(1))
         p_outs.append(p_out)
       ps = p_outs
     
