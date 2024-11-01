@@ -20,14 +20,19 @@ import pandas as pd
 import numpy as np
 
 def full_theta(inputs, max_input, samples):
-  xs = []
-  for i in range(inputs):
-    xs.append(torch.randint(0, max_input+1, (samples,)))
-  xs = torch.stack(xs, dim=0)
-  t = torch.randint(0, max_input+1, tuple([max_input+1]*inputs))
-  for i in range(samples):
-    x_i = tuple(xs[:, i].tolist())
-    t[x_i] = sum(x_i)
+#   xs = []
+#   for i in range(inputs):
+#     xs.append(torch.randint(0, max_input+1, (samples,)))
+#   xs = torch.stack(xs, dim=0)
+#   t = torch.randint(0, max_input+1, tuple([max_input+1]*inputs))
+#   t = torch.randint(0, max_input+1, tuple([max_input+1]*inputs))
+#   for i in range(samples):
+    # x_i = tuple(xs[:, i].tolist())
+    # t[x_i] = sum(x_i)
+#   return t
+  i = torch.arange(max_input+1).view(-1, 1)
+  j = torch.arange(max_input+1).view(1, -1)
+  t = i + j
   return t
 
 
@@ -44,8 +49,8 @@ class Trainer():
     self.digit = digit
     self.layers = layers
     self.initialize_theta()
-    self.initialize_gt()
     self.tensorsketch = TensorSketch(tensor_method)
+    self.initialize_gt()
     self.save_model = save_model
     
   def initialize_theta(self):
@@ -55,6 +60,11 @@ class Trainer():
       
   def initialize_gt(self):
     self.gt = list(map(lambda x: x.clone(), self.theta))
+    # rerr1, rerr2, rerr3, X_hat1, X_hat2, X_hat3 = self.tensorsketch.approx_theta({'gt1': self.gt[0], 'gt2': self.gt[1], 'gt3': self.gt[2], 'digit': self.digit, 'components': 2})
+    # self.theta[0] = X_hat1
+    # self.theta[1] = X_hat2
+    # self.theta[2] = X_hat3
+    
     
   def update_target(self, *inputs):
     batch_size = inputs[0][0].shape[0]
@@ -64,66 +74,67 @@ class Trainer():
   def target_t(self, layer, batch_size):
     ps = []
     for _ in range(2):
-      ps.append(torch.randint(0, 9*(2**layer)+1, (batch_size*(10**layer),)).flatten())
+      ps.append(torch.randint(0, 9*(2**layer)+1, (batch_size*8*(10**(layer+1)),)).flatten())
     ps = torch.stack(ps, dim=-1)
     for sample_i in ps:
       s_i = tuple(sample_i.tolist())
       self.gt[layer][s_i] = sum(s_i)
     
   def program(self, *inputs):
-    thetas = [self.theta[i].to(device).clamp(0, 9*2**(i+1)) for i in range(self.layers)]
+#     thetas = [self.theta[i].to(device).clamp(0, 9*2**(i+1)) for i in range(self.layers)]
       
-    # t1 = self.t1.to(device).clamp(0, 18)
-    # t2 = self.t2.to(device).clamp(0, 36)
-    # t3 = self.t3.to(device).clamp(0, 72)
-    
     ps = inputs
     batch_size = inputs[0].shape[0]
 
-    for i in range(self.layers):
-      t = thetas[i]
-      p_outs = []
-      for k in range(self.digit//2**(i+1)):
-        p_out = ps[k*2]
-        p1 = p_out.unsqueeze(-1)
-        p2 = ps[(k*2)+1].unsqueeze(1)
-        eqn = f'{"".join([chr(j + 97) for j in range(0, 3)])}, a{"".join([chr(i+97) for i in range(2, 4)])} -> {"".join([chr(j + 97) for j in range(0, 2)])}{chr(100)}'
-        p_out = torch.einsum(eqn, p1, p2)
-        p_out = torch.zeros(batch_size, 9*(2**(i+1))+1).to(device).scatter_add_(1, t.flatten().repeat(batch_size, 1), p_out.flatten(1))
-        p_outs.append(p_out)
-      ps = p_outs
+#     for i in range(self.layers):
+#       t = thetas[i]
+#       p_outs = []
+#       for k in range(self.digit//2**(i+1)):
+#         p_out = ps[k*2]
+#         p1 = p_out.unsqueeze(-1)
+#         p2 = ps[(k*2)+1].unsqueeze(1)
+#         eqn = f'{"".join([chr(j + 97) for j in range(0, 3)])}, a{"".join([chr(i+97) for i in range(2, 4)])} -> {"".join([chr(j + 97) for j in range(0, 2)])}{chr(100)}'
+#         p_out = torch.einsum(eqn, p1, p2)
+#         p_out = torch.zeros(batch_size, 9*(2**(i+1))+1).to(device).scatter_add_(1, t.flatten().repeat(batch_size, 1), p_out.flatten(1))
+#         p_outs.append(p_out)
+#       ps = p_outs
     
-    # # 4 iterations
-    # p_outs = []
-    # for k in range(4):
-    #     p_out = ps[k*2]
-    #     i = 1
-    #     p1 = p_out.unsqueeze(-1)
-    #     p2 = ps[(k*2)+i].unsqueeze(1)
-    #     eqn = f'{"".join([chr(j + 97) for j in range(0, i+2)])}, a{"".join([chr(i + 97) for i in range(i+1, i+3)])} -> {"".join([chr(j + 97) for j in range(0, i+1)])}{chr(i+97+2)}'
-    #     p_out = torch.einsum(eqn, p1, p2)
-    #     p_out = torch.zeros(batch_size, 19).to(device).scatter_add_(1, t1.flatten().repeat(batch_size, 1), p_out.flatten(1))
-    #     p_outs.append(p_out)
+    t1 = self.theta[0].to(device).clamp(0, 18)
+    t2 = self.theta[1].to(device).clamp(0, 36)
+    t3 = self.theta[2].to(device).clamp(0, 72)
+    
+    # 4 iterations
+    p_outs = []
+    for k in range(4):
+        p_out = ps[k*2]
+        i = 1
+        p1 = p_out.unsqueeze(-1)
+        p2 = ps[(k*2)+i].unsqueeze(1)
+        eqn = f'{"".join([chr(j + 97) for j in range(0, i+2)])}, a{"".join([chr(i + 97) for i in range(i+1, i+3)])} -> {"".join([chr(j + 97) for j in range(0, i+1)])}{chr(i+97+2)}'
+        p_out = torch.einsum(eqn, p1, p2)
+        p_out = torch.zeros(batch_size, 19).to(device).scatter_add_(1, t1.flatten().repeat(batch_size, 1), p_out.flatten(1))
+        p_outs.append(p_out)
         
-    # p_outs2 = []
-    # for k in range(2):
-    #     p_out = p_outs[k*2]
-    #     i = 1
-    #     p1 = p_out.unsqueeze(-1)
-    #     p2 = p_outs[(k*2)+i].unsqueeze(1)
-    #     eqn = f'{"".join([chr(j + 97) for j in range(0, i+2)])}, a{"".join([chr(i + 97) for i in range(i+1, i+3)])} -> {"".join([chr(j + 97) for j in range(0, i+1)])}{chr(i+97+2)}'
-    #     p_out = torch.einsum(eqn, p1, p2)
-    #     p_out = torch.zeros(batch_size, 37).to(device).scatter_add_(1, t2.flatten().repeat(batch_size, 1), p_out.flatten(1))
-    #     p_outs2.append(p_out)
+    p_outs2 = []
+    for k in range(2):
+        p_out = p_outs[k*2]
+        i = 1
+        p1 = p_out.unsqueeze(-1)
+        p2 = p_outs[(k*2)+i].unsqueeze(1)
+        eqn = f'{"".join([chr(j + 97) for j in range(0, i+2)])}, a{"".join([chr(i + 97) for i in range(i+1, i+3)])} -> {"".join([chr(j + 97) for j in range(0, i+1)])}{chr(i+97+2)}'
+        p_out = torch.einsum(eqn, p1, p2)
+        p_out = torch.zeros(batch_size, 37).to(device).scatter_add_(1, t2.flatten().repeat(batch_size, 1), p_out.flatten(1))
+        p_outs2.append(p_out)
         
-    # p1 = p_outs2[0]
-    # p2 = p_outs2[1]
-    # i = 1
-    # eqn = f'{"".join([chr(j + 97) for j in range(0, i+2)])}, a{"".join([chr(i + 97) for i in range(i+1, i+3)])} -> {"".join([chr(j + 97) for j in range(0, i+1)])}{chr(i+97+2)}'
-    # p_out = torch.einsum(eqn, p1.unsqueeze(-1), p2.unsqueeze(1))
-    # output = torch.zeros(batch_size, 73).to(device).scatter_add_(1, t3.flatten().repeat(batch_size, 1), p_out.flatten(1))
+    p1 = p_outs2[0]
+    p2 = p_outs2[1]
+    i = 1
+    eqn = f'{"".join([chr(j + 97) for j in range(0, i+2)])}, a{"".join([chr(i + 97) for i in range(i+1, i+3)])} -> {"".join([chr(j + 97) for j in range(0, i+1)])}{chr(i+97+2)}'
+    p_out = torch.einsum(eqn, p1.unsqueeze(-1), p2.unsqueeze(1))
+    output = torch.zeros(batch_size, 73).to(device).scatter_add_(1, t3.flatten().repeat(batch_size, 1), p_out.flatten(1))
         
-    return p_outs[0]
+    return output
+    # return p_outs[0]
   
   def loss(self, output, ground_truth):
     dim = output.shape[1]
@@ -139,7 +150,7 @@ class Trainer():
     for (data, target) in iter:
       self.optimizer.zero_grad()
       output_t = self.network(tuple([data_i.to(device) for data_i in data]))
-      self.update_target(*tuple(output_t))
+    #   self.update_target(*tuple(output_t))
       rerr1, rerr2, rerr3, X_hat1, X_hat2, X_hat3 = self.tensorsketch.approx_theta({'gt1': self.gt[0], 'gt2': self.gt[1], 'gt3': self.gt[2], 'digit': self.digit, 'components': 2})
       self.theta[0] = X_hat1
       self.theta[1] = X_hat2
