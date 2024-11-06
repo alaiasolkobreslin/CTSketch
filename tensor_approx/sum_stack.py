@@ -19,36 +19,34 @@ import seaborn as sn
 import pandas as pd
 import numpy as np
 
-def full_theta(layer, samples):
-  xs = []
-#   iter_val = 2 if layer == 0 else 1 if layer == 1 else 2
-#   for i in range(max(1, layer)): # for layer 0: 2, layer 1: 1, layer 2: 
-  for i in range(max(1, layer)):
-    xs.append(torch.randint(0, (2 ** layer) * 9, (samples,)))
-  xs = torch.stack(xs, dim=0)
-  t = torch.randint(0, (2 ** layer) * 9 + 1, tuple([(2 ** layer) * 9 + 1] * 2))
-  for i in range(samples):
-    x_i = tuple(xs[:, i].tolist())
-    t[x_i] = sum(x_i) # for layer 1, this initializes the whole row to itself
-  return t
+#def full_theta(layer, samples):
+#  xs = []
+#  for i in range(max(1, layer)):
+#    xs.append(torch.randint(0, (2 ** layer) * 9, (samples,)))
+#  xs = torch.stack(xs, dim=0)
+#  t = torch.randint(0, (2 ** layer) * 9 + 1, tuple([(2 ** layer) * 9 + 1] * 2))
+#  for i in range(samples):
+#    x_i = tuple(xs[:, i].tolist())
+#    t[x_i] = sum(x_i) # for layer 1, this initializes the whole row to itself
+#  return t
 
-# def full_theta(inputs, max_input, samples):
-#   i = torch.arange(max_input+1).view(-1, 1)
-#   j = torch.arange(max_input+1).view(1, -1)
-#   t = i + j
-#   return t
+def full_theta(inputs, max_input, samples):
+  i = torch.arange(max_input+1).to(device).view(-1, 1)
+  j = torch.arange(max_input+1).to(device).view(1, -1)
+  t = i + j
+  return t
 
 
 class Trainer():
   def __init__(self, model, tensor_method, digit, layers, train_loader, test_loader, mnist_loader, model_dir, learning_rate, save_model=False):
     self.model_dir = model_dir
-    self.network = model(digit).to(device)
+    self.network = model(digit, device)
     self.optimizer = optim.Adam(self.network.parameters(), lr=learning_rate)
     self.train_loader = train_loader
     self.test_loader = test_loader
     self.mnist_loader = mnist_loader
     self.best_loss = 10000000000
-    self.output_dim = digit*9 + 1
+    self.output_dim = digit*9
     self.digit = digit
     self.layers = layers
     self.initialize_theta()
@@ -58,7 +56,7 @@ class Trainer():
     # self.gt1 = self.t1.clone() # cheating - shouldn't be saving this
     # self.gt2 = self.t2.clone()
     # self.gt3 = self.t3.clone()
-    self.tensorsketch = TensorSketch(tensor_method)
+    self.tensorsketch = TensorSketch(tensor_method, device)
     self.initialize_gt()
     self.save_model = save_model
     
@@ -67,38 +65,35 @@ class Trainer():
     
   def initialize_theta(self):
     self.theta = []
-    self.theta.append(full_theta(0, 0).detach())
-    self.theta.append(full_theta(1, 5000).detach()) # samples seems arbitrary
-    self.theta.append(full_theta(2, 20000).detach()) # idk why but 20K samples seems to work best
-    # for i in range(self.layers):
-    #   self.theta.append(full_theta(2, 2**i * 9, 500 if i == 0 else 5000 if i == 1 else 20000).detach())
+    #self.theta.append(full_theta(0, 0).detach())
+    #self.theta.append(full_theta(1, 5000).detach()) # samples seems arbitrary
+    #self.theta.append(full_theta(2, 20000).detach()) # idk why but 20K samples seems to work best
+    for i in range(self.layers):
+      self.theta.append(full_theta(2, 2**i * 9, 500 if i == 0 else 5000 if i == 1 else 20000).detach())
   
   def target_t1(self, digit, *inputs):
     ps = []
     for input_i in inputs[:2]:
-      ps.append(torch.randint(0, 10, (input_i.shape[0]*digit*10,)).flatten())
+      ps.append(torch.randint(0, 10, (input_i.shape[0]*digit*10,)).to(device).flatten())
     ps = torch.stack(ps, dim=-1)
-    for sample_i in ps:
-      s_i = tuple(sample_i.tolist())
-      self.gt[0][s_i] = sum(s_i)
+    sums = ps.sum(dim=1)
+    self.gt[0][tuple(ps.T)] = sums
       
   def target_t2(self, digit, *inputs):
     ps = []
     for input_i in inputs[:2]:
-      ps.append(torch.randint(0, 9*digit+1, (input_i.shape[0]*digit*100,)).flatten())
+      ps.append(torch.randint(0, 9*digit+1, (input_i.shape[0]*digit*100,)).to(device).flatten())
     ps = torch.stack(ps, dim=-1)
-    for sample_i in ps:
-      s_i = tuple(sample_i.tolist())
-      self.gt[1][s_i] = sum(s_i)
+    sums = ps.sum(dim=1)
+    self.gt[1][tuple(ps.T)] = sums
       
   def target_t3(self, digit, *inputs):
     ps = []
     for input_i in inputs[:2]:
-      ps.append(torch.randint(0, 18*digit+1, (input_i.shape[0]*digit*100,)).flatten())
+      ps.append(torch.randint(0, 18*digit+1, (input_i.shape[0]*digit*100,)).to(device).flatten())
     ps = torch.stack(ps, dim=-1)
-    for sample_i in ps:
-      s_i = tuple(sample_i.tolist())
-      self.gt[2][s_i] = sum(s_i)
+    sums = ps.sum(dim=1)
+    self.gt[2][tuple(ps.T)] = sums
     
   def program(self, *inputs):
     t1 = self.theta[0].to(device).clamp(0, 18)
@@ -203,7 +198,7 @@ class Trainer():
     y_true, y_pred = [], []
     with torch.no_grad():
         for (imgs, digits) in self.mnist_loader:
-            pred_digits = np.argmax(self.network.mnist_net(imgs), axis=1)
+            pred_digits = torch.argmax(self.network.mnist_net(imgs.to(device)), dim=1)
             y_true += [d.item() for d in digits]
             y_pred += [d.item() for d in pred_digits]
 

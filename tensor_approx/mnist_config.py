@@ -129,15 +129,21 @@ class MNISTNet(nn.Module):
     return x
 
 class MNISTSumNet(nn.Module):
-  def __init__(self, digit):
+  def __init__(self, digit, device):
     super(MNISTSumNet, self).__init__()
 
-    self.mnist_net = MNISTNet()
+    self.mnist_net = MNISTNet().to(device)
     self.digit = digit
 
   def forward(self, x):
-    batch_size = x[0].shape[0]
-    x = torch.cat(x, dim=0)
-    x = self.mnist_net(x)
-    x = [x[i*batch_size:(i + 1) * batch_size,:] for i in range(self.digit)]
-    return tuple(x)
+      # Assume x is a list of tensors, each already on the same device
+      batch_size = x[0].shape[0]
+      
+      # Concatenate along the batch dimension and run through mnist_net
+      x = torch.cat(x, dim=0)
+      x = self.mnist_net(x)  # Process all in one forward pass
+      
+      # Reshape the result instead of slicing in a loop
+      x = x.view(self.digit, batch_size, -1)
+      
+      return tuple(x[i] for i in range(self.digit))
