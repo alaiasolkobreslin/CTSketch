@@ -1,50 +1,18 @@
-from functools import reduce
 import os
 import random
 from typing import *
 from tqdm import tqdm
+from functools import reduce
+from argparse import ArgumentParser
+from sklearn.metrics import confusion_matrix
 
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from argparse import ArgumentParser
-from sklearn.metrics import confusion_matrix
 from mnist_config import MNISTSumNet, mnist_sum_loader
+from sketch_config import full_theta2, full_theta3, full_theta4, sample_theta
 from tensor_sketch import TensorSketch
-
-def full_theta4(digit, elems, output_dim, samples):
-  x1 = torch.arange(0, elems).reshape(elems, 1, 1, 1)
-  x2 = torch.arange(0, elems).reshape(1, elems, 1, 1)
-  x3 = torch.arange(0, elems).reshape(1, 1, elems, 1)
-  x4 = torch.arange(0, elems).reshape(1, 1, 1, elems)
-  x = x1 + x2 + x3 + x4
-  return x
-
-def full_theta3(digit, elems, output_dim, samples):
-  x1 = torch.arange(0, elems).reshape(elems, 1, 1)
-  x2 = torch.arange(0, elems).reshape(1, elems, 1)
-  x3 = torch.arange(0, elems).reshape(1, 1, elems)
-  x = x1 + x2 + x3
-  return x
-
-def full_theta2(digit, elems, output_dim, samples):
-  x1 = torch.arange(0, elems).reshape(elems, 1)
-  x2 = torch.arange(0, elems).reshape(1, elems)
-  x = x1 + x2
-  return x
-
-def sample_theta(digit, elems, output_dim, samples):
-  xs = []
-  for i in range(digit):
-    xs.append(torch.randint(0, elems, (samples,)))
-  xs = torch.stack(xs, dim=0)
-  # t = torch.randint(0, output_dim, tuple([elems]*digit))
-  t = torch.zeros(tuple([elems]*digit)).long()
-  for i in range(samples):
-    x_i = tuple(xs[:, i].tolist())
-    t[x_i] = sum(x_i)
-  return t
 
 def full_theta(digits, input_dim, output_dim, samples):
   if digits == 4:
@@ -68,13 +36,13 @@ class Trainer():
     self.dims = [10] + [dim_i * 9 + 1 for dim_i in dims]
     self.tensorsketch = TensorSketch(tensor_method)
     self.save_model = save_model
-    self.rerr = [1, 1, 1]
+    self.rerr = [1] * len(digits)
+    self.t = [None] * len(digits)
 
-    self.gt = [] # cheating - shouldn't be saving this
+    self.gt = []
     for i, digit_i in enumerate(self.digits):
-      gt = full_theta(digit_i, self.dims[i], self.dims[i + 1], 1000) # 150000, 10000000, 250000
+      gt = full_theta(digit_i, self.dims[i], self.dims[i + 1], 0)
       self.gt.append(gt)
-    self.t = [None, None, None] # self.gt
 
   def target_t(self, i, n, r, samples, *inputs):
     ps = []
@@ -84,11 +52,10 @@ class Trainer():
     ps = torch.stack(ps, dim=-1)
     for sample_i in ps:
       s_i = tuple(sample_i.tolist())
-      # self.t[s_i] = sum(s_i)
       self.gt[i][s_i] = sum(s_i)
 
   def sub_program(self, i, n, d, *base_inputs):
-    t = self.t[i].to(device)
+    t = self.t[i].long().to(device)
     p = base_inputs[0]
     batch_size = p.shape[0]
     for i in range(1, n):
@@ -102,12 +69,15 @@ class Trainer():
   def program(self, *inputs):
     ps = inputs
     digits, iters = 1, self.all_digit
-    for i, (n_i, d_i) in enumerate(zip(self.digits, self.dims)):
+    if len(self.digits) > 9: ranks = [2, 2, 2, 2, 2, 4, 4, 4, 4, 4]
+    else: ranks = [2, 2, 2, 2, 2, 3, 3, 3, 4]
+    for i, n_i in enumerate(self.digits):
       if self.t[i] is None:
-        self.target_t(i, n_i, d_i, 100, *ps)
+        # self.target_t(i, n_i, d_i, 100, *ps) - assuming full pre-training for now
         digits *= n_i
-        rerr, X_hat = self.tensorsketch.approx_theta({'gt': self.gt[i], 'digit': digits, 'output': self.dims[i+1], 'rank': 2})
+        rerr, cores, X_hat = self.tensorsketch.approx_theta({'gt': self.gt[i], 'digit': digits, 'output': self.dims[i+1], 'rank': ranks[i]})
         self.t[i] = X_hat
+        assert(torch.all(self.t[i] == self.gt[i]))
         self.rerr[i] = rerr
       ps2 = []
       iters = iters // n_i
@@ -127,7 +97,6 @@ class Trainer():
     self.network.train()
     num_items = 0
     total_correct = 0
-    total_correct2 = 0
     iter = tqdm(self.train_loader, total=len(self.train_loader))
     for (data, target, _) in iter:
       self.optimizer.zero_grad()
@@ -137,19 +106,16 @@ class Trainer():
       loss = self.loss(output, target.to(device))
       loss.backward()
       self.optimizer.step()
-      output2 = torch.stack(output_t, dim=0).argmax(dim=-1).sum(dim=0)
-      total_correct += (output2==target.to(device)).float().sum()
-      total_correct2 += (output.argmax(dim=-1)==target.to(device)).float().sum()
+      total_correct += (output.argmax(dim=-1)==target.to(device)).float().sum()
       num_items += output.shape[0]
       correct_perc = 100. * total_correct / num_items
-      correct_perc2 = 100. * total_correct2 / num_items
-      iter.set_description(f"[Train {epoch}] Err:{rerr:.4f} Loss: {loss.item():.4f} Accuracy: {correct_perc:.4f}% {correct_perc2:.4f}%")
+      iter.set_description(f"[Train {epoch}] Err:{rerr:.4f} Loss: {loss.item():.4f} Accuracy: {correct_perc:.4f}%")
 
   def test_epoch(self, epoch):
     self.network.eval()
     num_items = len(self.test_loader.dataset)
-    test_loss = 0
     correct = 0
+    digit_correct = 0
     digits_pred = []
     digits_gt = []
     with torch.no_grad():
@@ -157,20 +123,20 @@ class Trainer():
       for (data, target, digits) in iter:
         output_t = self.network(tuple([data_i.to(device) for data_i in data]))
         output = torch.stack(output_t, dim=0).argmax(dim=-1)
+        pred = output.sum(dim=0).to(device)
         digits_pred.extend(output.t().flatten().cpu())
         digits_gt.extend(digits.flatten().cpu())
-        pred = output.sum(dim=0).to(device)
         target = target.to(device)
-        # test_loss += self.loss(output2, target).item()
-        correct += torch.where(pred == target, 1, 0).sum()
+        correct += (pred == target).sum()
+        digit_correct += (output.t().flatten() == digits.flatten().to(device)).sum()
         perc = 100. * correct / num_items
-        iter.set_description(f"[Test Epoch {epoch}] Accuracy: {correct}/{num_items} ({perc:.2f}%)")
+        perc2 = 100. * digit_correct / (num_items * self.all_digit)
+        iter.set_description(f"[Test Epoch {epoch}] Accuracy: {correct}/{num_items} ({perc:.2f}%) Digit Accuracy ({perc2:.2f}%)")
 
-      #cf_matrix = confusion_matrix(digits_gt, digits_pred)
-      #print(cf_matrix)
+      # cf_matrix = confusion_matrix(digits_gt, digits_pred)
+      # print(cf_matrix)
     
-    if self.save_model and test_loss < self.best_loss:
-      self.best_loss = test_loss
+    if self.save_model:
       torch.save(self.network.state_dict(), self.model_dir+f"/best.pth")
 
   def train(self, n_epochs):
@@ -186,8 +152,8 @@ if __name__ == "__main__":
   parser = ArgumentParser("mnist_sum")
   parser.add_argument("--n-epochs", type=int, default=200)
   parser.add_argument("--batch-size", type=int, default=16)
-  parser.add_argument("--learning-rate", type=float, default=5e-4)
-  parser.add_argument("--method", type=str, default='hooi')
+  parser.add_argument("--learning-rate", type=float, default=1e-3)
+  parser.add_argument("--method", type=str, default='tt')
   parser.add_argument("--seed", type=int, default=1234)
   parser.add_argument("--jit", action="store_true")
   parser.add_argument("--digits", type=int, default=4)
@@ -200,8 +166,9 @@ if __name__ == "__main__":
   learning_rate = args.learning_rate
   digit = args.digits
   method = args.method
-  num_iters = 4
-  num_iters2 = 3
+  digits = [2, 2, 2, 2, 2, 2]
+  dims = [reduce(lambda x, y: x * y, digits[:i+1]) for i in range(len(digits))]
+  print(dims[-1])
 
   torch.manual_seed(args.seed)
   random.seed(args.seed)
@@ -215,10 +182,7 @@ if __name__ == "__main__":
   os.makedirs(model_dir, exist_ok=True)
 
   # Dataloaders
-  train_loader, test_loader = mnist_sum_loader(data_dir, batch_size, digit*num_iters*num_iters2)
-
-  digits = [digit, num_iters, num_iters2]
-  dims = [reduce(lambda x, y: x * y, digits[:i+1]) for i in range(len(digits))]
+  train_loader, test_loader = mnist_sum_loader(data_dir, batch_size, dims[-1])
 
   # Create trainer and train
   trainer = Trainer(MNISTSumNet, method, digits, dims, train_loader, test_loader, model_dir, learning_rate)

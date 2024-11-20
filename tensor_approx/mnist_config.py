@@ -38,6 +38,21 @@ class MNISTSumDataset(torch.utils.data.Dataset):
       ),
       range(self.length)
     )
+    mnist = torchvision.datasets.MNIST(
+        root,
+        train=train,
+        transform=transform,
+        target_transform=target_transform,
+        download=download,
+      )
+    if self.digit >= 200:
+      self.mnist_dataset = torch.utils.data.ConcatDataset([mnist, mnist, mnist, mnist, mnist])
+    elif self.digit >= 100:
+      self.mnist_dataset = torch.utils.data.ConcatDataset([mnist, mnist, mnist, mnist])
+    elif self.digit >= 50:
+      self.mnist_dataset = torch.utils.data.ConcatDataset([mnist, mnist, mnist])
+    elif self.digit >= 25:
+      self.mnist_dataset = torch.utils.data.ConcatDataset([mnist, mnist])
     self.index_map = list(range(len(self.mnist_dataset)))
     random.shuffle(self.index_map)
 
@@ -58,18 +73,19 @@ class MNISTSumDataset(torch.utils.data.Dataset):
       data.append(d)
       target.append(t)
     
-    target = sum(tuple(target))
+    target_sum = sum(tuple(target))
 
     # Each data has two images and the GT is the sum of two digits
-    return (*tuple(data), target)
+    return (*tuple(data), target_sum, target)
 
   @staticmethod
   def collate_fn(batch):
     imgs = []
-    for i in range(len(batch[0])-1):
+    for i in range(len(batch[0])-2):
       imgs.append(torch.stack([item[i] for item in batch]))
+    sum = torch.stack([torch.tensor(item[-2]).long() for item in batch])
     digits = torch.stack([torch.tensor(item[-1]).long() for item in batch])
-    return (tuple(imgs), digits)
+    return (tuple(imgs), sum, digits)
 
 
 def mnist_sum_loader(data_dir, batch_size, digit):
@@ -117,7 +133,7 @@ class MNISTNet(nn.Module):
     x = F.relu(self.fc1(x))
     x = F.relu(self.fc2(x))
     x = self.fc3(x)
-    return x
+    return F.softmax(x, dim=-1)
 
 class MNISTSumNet(nn.Module):
   def __init__(self, digit):
