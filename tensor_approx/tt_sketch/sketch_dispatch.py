@@ -6,9 +6,7 @@ import enum
 from functools import partial
 from typing import Callable, Literal, Optional, Tuple
 
-import numpy as np
-import numpy.typing as npt
-import scipy.linalg
+import torch
 
 from tt_sketch.drm import TensorTrainDRM
 from tt_sketch.drm_base import DRM
@@ -89,8 +87,8 @@ def sketch_omega_sum(
     tensor: TensorSum,
     omega_shape: Tuple[int, int],
     **kwargs,
-) -> npt.NDArray:
-    omega = np.zeros(omega_shape)
+):
+    omega = torch.zeros(omega_shape)
     for summand, left_sketch, right_sketch in zip(
         tensor.tensors, left_sketch_array, right_sketch_array
     ):
@@ -115,8 +113,8 @@ def sketch_psi_sum(
     tensor: TensorSum,
     psi_shape: Tuple[int, int],
     **kwargs,
-) -> npt.NDArray:
-    psi = np.zeros(psi_shape)
+):
+    psi = torch.zeros(psi_shape)
     if left_sketch_array is None:
         left_sketch_array = (None,) * tensor.num_summands
     if right_sketch_array is None:
@@ -158,8 +156,8 @@ def get_sketch_method(tensor: Tensor, drm: DRM) -> Callable:
 
 
 def orth_step(
-    Psi: npt.NDArray[np.float64], Omega: Optional[npt.NDArray[np.float64]]
-) -> npt.NDArray[np.float64]:
+    Psi, Omega
+):
     """
     Perform the orthogonalization step in the orthogonal sketching algorithm.
     """
@@ -168,8 +166,8 @@ def orth_step(
     Psi_mat = Psi.reshape((Psi_shape[0] * Psi_shape[1], Psi_shape[2]))
     if Omega is not None:
         Psi_mat = right_mul_pinv(Psi_mat, Omega)
-    # Psi_mat, _ = np.linalg.qr(Psi_mat)
-    Psi_mat, _ = scipy.linalg.qr(Psi_mat, mode="economic")
+    # Psi_mat, _ = torch.linalg.qr(Psi_mat)
+    Psi_mat, _ = torch.linalg.qr(Psi_mat, mode="reduced")
     Psi = Psi_mat.reshape(Psi_shape[0], Psi_shape[1], final_right_rank)
     return Psi
 

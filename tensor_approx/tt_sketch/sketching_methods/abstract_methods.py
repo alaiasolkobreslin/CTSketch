@@ -30,15 +30,15 @@ class CansketchSparse(DRM, ABC):
         """Computes list of sketching matrices sampled into a vector using the
         indices of ``tensor`` for each unfolding. Shape of each vector is
         ``v[mu] = (rank[mu], tensor.nnz)``. This way the contraction between
-        ``tensor`` and the sketching matrix is of form ``np.dot(tensor.entries,
-        v[mu])``"""
+        ``tensor`` and the sketching matrix is of form ``(tensor.entries.matmul( v[mu]))``
+        """
 
 
 class CansketchDense(DRM, ABC):
     @abstractmethod
     def sketch_dense(self, tensor: DenseTensor) -> ArrayGenerator:
         r"""Return list of dense DRMs. Of shape
-        ``(np.prod(tensor.shape[ :mu+1]), rank[mu])``"""
+        ``(torch.prod(tensor.shape[ :mu+1]), rank[mu])``"""
 
 
 class CansketchCP(DRM, ABC):
@@ -59,5 +59,5 @@ class CanSketchTucker(DRM, ABC):
         where ``Y_\mu`` is the DRM, and :math:`U_\mu` denotes the factors of the
         Tucker decomposition.
 
-        Returns array of shape ``(np.prod(tensor.rank[:mu]), drm.rank[mu])``
+        Returns array of shape ``(torch.prod(tensor.rank[:mu]), drm.rank[mu])``
         """

@@ -130,7 +130,7 @@ cdef short[:] _inds_to_sparse_sign(
     cdef double[:] uniform_nums = _inds_to_rand_double(
         indices, shape, 0, nnz, seed
     )
-    cdef short[:] sparse_sign = np.zeros((N*rank), dtype=np.int16)
+    cdef short[:] sparse_sign = torch.zeros((N*rank), dtype=np.int16)
     cdef int i
     cdef int j
     cdef int e

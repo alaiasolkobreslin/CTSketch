@@ -1,6 +1,6 @@
 from typing import Optional, Tuple, Union
 
-import numpy as np
+import torch
 from tt_sketch.drm_base import CanSlice, handle_transpose
 from tt_sketch.sketching_methods.abstract_methods import (
     CansketchCP,
@@ -64,7 +64,7 @@ class TensorTrainDRM(
             if mu == 0:
                 lr_contract = core_slice.reshape(core_slice.shape[1:])
             else:
-                lr_contract = np.einsum("ijk,ji->jk", core_slice, lr_contract)
+                lr_contract = torch.einsum("ijk,ji->jk", core_slice, lr_contract)
             sketch_mat = lr_contract[:, self.rank_min[mu] : self.rank_max[mu]]
             yield sketch_mat.T
 
@@ -76,14 +76,13 @@ class TensorTrainDRM(
             tensor_core = tensor.cores[mu]
             drm_core = self.cores[mu]
             if mu == 0:
-                lr_contract = np.einsum("ijk,ijl->kl", tensor_core, drm_core)
+                lr_contract = torch.einsum("ijk,ijl->kl", tensor_core, drm_core)
             else:
-                lr_contract = np.einsum(
+                lr_contract = torch.einsum(
                     "ij,ikl,jkm->lm",
                     lr_contract,
                     tensor_core,
-                    drm_core,
-                    optimize="optimal",
+                    drm_core
                 )
             yield lr_contract[:, self.rank_min[mu] : self.rank_max[mu]]
 
@@ -95,15 +94,13 @@ class TensorTrainDRM(
             tensor_core = tensor.cores[mu]
             drm_core = self.cores[mu]
             if mu == 0:
-                lr_contract = np.einsum("ij,lik->jk", tensor_core, drm_core)
+                lr_contract = torch.einsum("ij,lik->jk", tensor_core, drm_core)
             else:
-                lr_contract = np.einsum(
+                lr_contract = torch.einsum(
                     "ij,ki,jkl->il",
                     lr_contract,
                     tensor_core,
-                    drm_core,
-                    optimize="optimal",
-                )
+                    drm_core                )
             yield lr_contract[:, self.rank_min[mu] : self.rank_max[mu]]
 
     @handle_transpose
@@ -113,7 +110,7 @@ class TensorTrainDRM(
         yield partial_contraction.T
         for mu in range(1, n_dims - 1):
             core = self.cores[mu]
-            partial_contraction = np.einsum(
+            partial_contraction = torch.einsum(
                 "ij,jkl->ikl", partial_contraction, core
             )
             partial_contraction = partial_contraction.reshape(
@@ -124,7 +121,7 @@ class TensorTrainDRM(
     @handle_transpose
     def sketch_tucker(self, tensor: TuckerTensor) -> ArrayGenerator:
         n_dims = len(self.shape)
-        partial_contraction = np.einsum(
+        partial_contraction = torch.einsum(
             "ijk,jl->ilk", self.cores[0], tensor.factors[0].T
         )
         partial_contraction = partial_contraction.reshape(
@@ -133,10 +130,10 @@ class TensorTrainDRM(
         yield partial_contraction
 
         for mu in range(1, n_dims - 1):
-            core_reduced = np.einsum(
+            core_reduced = torch.einsum(
                 "jkl,km->jml", self.cores[mu], tensor.factors[mu].T
             )
-            partial_contraction = np.einsum(
+            partial_contraction = torch.einsum(
                 "ij,jml->iml", partial_contraction, core_reduced
             )
             partial_contraction = partial_contraction.reshape(

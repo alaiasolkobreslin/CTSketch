@@ -12,9 +12,7 @@ from math import ceil
 from time import perf_counter
 from typing import Dict, List, Literal, Optional, Tuple, Union, Any
 
-import numpy as np
-import numpy.typing as npt
-import scipy.linalg
+import torch
 
 from tt_sketch.sketch import orthogonal_sketch, stream_sketch
 from tt_sketch.tensor import Tensor, TensorSum, TensorTrain
@@ -67,7 +65,7 @@ class MPO(Tensor, TTLinearMap):
     def T(self) -> MPO:
         """Transposition here is that of a linear map, this is different from
         other tensors."""
-        new_cores = [C.transpose((0, 2, 1, 3)) for C in self.cores]
+        new_cores = [C.permute((0, 2, 1, 3)) for C in self.cores]
         return self.__class__(new_cores)
 
     def to_tt(self) -> TensorTrain:
@@ -77,21 +75,21 @@ class MPO(Tensor, TTLinearMap):
         ]
         return TensorTrain(new_cores)
 
-    def to_numpy(mpo) -> npt.NDArray:
+    def to_numpy(mpo):
         """Contract to dense array of shape
         ``(in_shape[0], out_shape[0], ..., in_shape[d-1], outs_shape[d-1])``"""
 
         res = mpo.cores[0]
         res = res.reshape(res.shape[1:])
         for C in mpo.cores[1:]:
-            res = np.einsum("...i,ijkl->...jkl", res, C)
+            res = torch.einsum("...i,ijkl->...jkl", res, C)
         res = res.reshape(res.shape[:-1])
         return res
 
     def __call__(self, other: TensorTrain) -> TensorTrain:
         new_cores = []
         for M, C in zip(self.cores, other.cores):
-            MC = np.einsum("ijkl,ajb->iaklb", M, C)
+            MC = torch.einsum("ijkl,ajb->iaklb", M, C)
             MC = MC.reshape(
                 MC.shape[0] * MC.shape[1],
                 MC.shape[2],
@@ -113,9 +111,9 @@ class MPO(Tensor, TTLinearMap):
         for r1, s1, s2, r2 in zip(
             (1,) + rank, in_shape, out_shape, rank + (1,)
         ):
-            C = np.random.normal(size=(r1, s1, s2, r2))
-            C += C.transpose(0, 2, 1, 3).reshape(C.shape)  # symmetrize
-            C = C * np.sqrt(s1 * s2) / np.linalg.norm(C)
+            C = torch.randn((r1, s1, s2, r2))
+            C += C.permute(0, 2, 1, 3).reshape(C.shape)  # symmetrize
+            C = C * torch.sqrt(s1 * s2) / torch.linalg.norm(C)
             cores.append(C)
         return cls(cores)
 
@@ -123,7 +121,7 @@ class MPO(Tensor, TTLinearMap):
     def eye(cls, shape) -> MPO:
         cores = []
         for s in shape:
-            C = np.eye(s, s)
+            C = torch.eye(s, s)
             C = C.reshape(1, C.shape[0], C.shape[1], 1)
             cores.append(C)
         return cls(cores)
@@ -143,7 +141,7 @@ class TTPrecond(TTLinearMap):
 
     def __init__(self, A, shape, mode=0):
         self.A = A
-        self.Q, self.R = np.linalg.qr(A)
+        self.Q, self.R = torch.linalg.qr(A)
         self.mode = mode
         self.in_shape = shape
         self.out_shape = shape
@@ -152,7 +150,7 @@ class TTPrecond(TTLinearMap):
         new_cores = deepcopy(other.cores)
         C = new_cores[self.mode]
         C_mat = matricize(C, mode=1, mat_shape=True)
-        sol = scipy.linalg.solve_triangular(self.R, (self.Q.T) @ C_mat)
+        sol = torch.linalg.solve_triangular(self.R, (self.Q.T) @ C_mat)
         new_cores[self.mode] = dematricize(sol, mode=1, shape=C.shape)
         return TensorTrain(new_cores)
 
@@ -208,7 +206,7 @@ class TTLinearMapSum:
 
 # def tt_weighted_sum_sketched(
 #     x0: TensorTrain,
-#     coeffs: npt.NDArray,
+#     coeffs,
 #     tt_list: List[TensorTrain],
 #     tolerance: float,
 #     max_rank: Tuple[int, ...],
@@ -224,7 +222,7 @@ class TTLinearMapSum:
 
 # def tt_weighted_sum_exact(
 #     x0: TensorTrain,
-#     coeffs: npt.NDArray,
+#     coeffs,
 #     tt_list: List[TensorTrain],
 #     tolerance: float,
 #     max_rank: Tuple[int, ...],
@@ -240,7 +238,7 @@ class TTLinearMapSum:
 
 # def tt_weighted_sum(
 #     x0: TensorTrain,
-#     coeffs: npt.NDArray,
+#     coeffs,
 #     tt_list: List[TensorTrain],
 #     tolerance: float,
 #     max_rank: Tuple[int, ...],
@@ -361,7 +359,7 @@ def tt_sum_gmres(
     residual_norm = residual_rounded.norm()
     beta = residual_norm
     nu_list: List[TensorTrain] = [residual_rounded / beta]
-    H_matrix = np.zeros((maxiter + 1, maxiter))
+    H_matrix = torch.zeros((maxiter + 1, maxiter))
 
     history: Dict[str, Any] = defaultdict(list)
     history["w_norm"].append(nu_list[-1].norm())
@@ -399,11 +397,11 @@ def tt_sum_gmres(
 
         # Compute residual norm
         H_red = H_matrix[: j + 2, : j + 1]
-        e1 = np.zeros(j + 2)
+        e1 = torch.zeros(j + 2)
         e1[0] = beta
-        y, (residual_norm,), _, _ = np.linalg.lstsq(H_red, e1, rcond=None)
+        y, (residual_norm,), _, _ = torch.linalg.lstsq(H_red, e1, rcond=None)
         history["step_time_with_res_norm"].append(perf_counter() - current_time)
-        history["residual_norm"].append(np.sqrt(residual_norm) / b_norm)
+        history["residual_norm"].append(torch.sqrt(residual_norm) / b_norm)
         history["rank"].append(w_rounded.rank)
         history["w_norm"].append(H_matrix[j + 1, j])
         history["delta"].append(delta)

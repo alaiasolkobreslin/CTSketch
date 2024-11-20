@@ -21548,7 +21548,7 @@ static __Pyx_memviewslice __pyx_f_9tt_sketch_3drm_18fast_lazy_gaussian__inds_to_
   /* "tt_sketch/drm/fast_lazy_gaussian.pyx":133
  *         indices, shape, 0, nnz, seed
  *     )
- *     cdef short[:] sparse_sign = np.zeros((N*rank), dtype=np.int16)             # <<<<<<<<<<<<<<
+ *     cdef short[:] sparse_sign = torch.zeros((N*rank), dtype=np.int16)             # <<<<<<<<<<<<<<
  *     cdef int i
  *     cdef int j
  */

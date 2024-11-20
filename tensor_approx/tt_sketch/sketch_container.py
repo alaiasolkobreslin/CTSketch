@@ -3,7 +3,7 @@ from copy import deepcopy
 
 from typing import Optional, Tuple
 
-import numpy as np
+import torch
 
 from tt_sketch.utils import ArrayList
 
@@ -50,11 +50,11 @@ class SketchContainer:
     ) -> SketchContainer:
         Psi_cores = []
         for r1, n, r2 in zip((1,) + left_rank, shape, right_rank + (1,)):
-            Psi_cores.append(np.zeros((r1, n, r2)))
+            Psi_cores.append(torch.zeros((r1, n, r2)))
 
         Omega_mats = []
         for r1, r2 in zip(left_rank, right_rank):
-            Omega_mats.append(np.zeros((r1, r2)))
+            Omega_mats.append(torch.zeros((r1, r2)))
 
         return cls(Psi_cores, Omega_mats, shape, left_rank, right_rank)
 
@@ -70,7 +70,7 @@ class SketchContainer:
 
     @property
     def T(self) -> SketchContainer:
-        Psi_cores_new = [Psi.transpose(2, 1, 0) for Psi in self.Psi_cores[::-1]]
+        Psi_cores_new = [Psi.permute(2, 1, 0) for Psi in self.Psi_cores[::-1]]
         Omega_mats_new = [Omega.T for Omega in self.Omega_mats[::-1]]
         return self.__class__(Psi_cores_new, Omega_mats_new)
 

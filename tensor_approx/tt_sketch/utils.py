@@ -5,37 +5,36 @@ from functools import reduce
 from operator import mul
 from typing import Generator, List, Optional, Sequence, Tuple, Union
 
+import torch
 import numpy as np
-import numpy.typing as npt
-import scipy.linalg
 
 # from numpy.random import Generator, SeedSequence, default_rng
 from numpy.typing import ArrayLike
 
-ArrayList = List[npt.NDArray[np.float64]]
-ArrayGenerator = Generator[npt.NDArray[np.float64], None, None]
+ArrayList = List[torch.Tensor]
+ArrayGenerator = Generator[torch.Tensor, None, None]
 TTRank = Union[int, Tuple[int, ...]]
 
 
-def hilbert_tensor(n_dims: int, size: int) -> npt.NDArray:
+def hilbert_tensor(n_dims: int, size: int):
     """Create a Hilbert tensor of specified size and dimensionality."""
-    grid = np.meshgrid(*([np.arange(size)] * n_dims))
-    hilbert = 1 / (np.sum(np.array(grid), axis=0) + 1)
+    grid = torch.meshgrid(*([torch.arange(size)] * n_dims))
+    hilbert = 1 / (torch.sum(torch.tensor(grid), axis=0) + 1)
     return hilbert
 
 
-def sqrt_tensor(shape: Tuple[int, ...], a=-0.2, b=2) -> npt.NDArray:
+def sqrt_tensor(shape: Tuple[int, ...], a=-0.2, b=2):
     """Create a tensor of specified shape with square root of a sum a grid.
 
     Values of grid entries vary between a and b."""
 
     def sqrt_sum(X):
-        return np.sqrt(np.abs(np.sum(X, axis=0)))
+        return torch.sqrt(torch.abs(torch.sum(X, axis=0)))
 
-    vals = [np.linspace(a, b, s) for s in shape]
-    grid = np.stack(np.meshgrid(*vals))
+    vals = [torch.linspace(a, b, s) for s in shape]
+    grid = torch.stack(torch.meshgrid(*vals))
     X = sqrt_sum(grid)
-    X /= np.linalg.norm(X)
+    X /= torch.linalg.norm(X)
     return X
 
 
@@ -45,23 +44,23 @@ def power_decay_tensor(
     """Create tensor of specified shape such that singular values of each
     unfolding decay with a power law."""
     # if seed is not None:
-    #     np.random.seed(np.mod(seed, 2**32 - 1))
+    #     torch.manual_seed(seed % (2**32 - 1))
     seq = SeedSequence(seed)
     A_seed = seq.generate_state(1)[0]
     A = random_normal(shape=shape, seed=A_seed)
     for mode in range(len(A.shape)):
         A_mat = matricize(A, mode)
-        U, S, V = np.linalg.svd(A_mat, full_matrices=False)
+        U, S, V = torch.linalg.svd(A_mat, full_matrices=False)
 
         S /= S[0]
-        S *= 1 / np.arange(1, len(S) + 1) ** pow
-        A_mat = U @ np.diag(S) @ V
+        S *= 1 / torch.arange(1, len(S) + 1) ** pow
+        A_mat = U @ torch.diag(S) @ V
         A = dematricize(A_mat, mode, A.shape)
     return A
 
 
 def matricize(
-    A: npt.NDArray, mode: Union[int, Sequence[int]], mat_shape: bool = False
+    A, mode: Union[int, Sequence[int]], mat_shape: bool = False
 ):
     """Matricize tensor ``A`` with respect to ``mode``.
 
@@ -72,15 +71,15 @@ def matricize(
     else:  # Try casting to tuple
         mode = tuple(mode)
     perm = mode + tuple(i for i in range(len(A.shape)) if i not in mode)
-    A = np.transpose(A, perm)
-    right_shape = (np.prod(A.shape[len(mode) :], dtype=int),)
+    A = A.permute(perm)
+    right_shape = (torch.prod(torch.tensor(A.shape[len(mode) :]), dtype=int),)
     if mat_shape:
-        left_shape = (np.prod(A.shape[: len(mode)], dtype=int),)
+        left_shape = (torch.prod(torch.tensor(A.shape[: len(mode)]), dtype=int),)
     else:
         left_shape = A.shape[: len(mode)]  # type: ignore
     A = A.reshape(left_shape + right_shape)
 
-    return A
+    return A.float()
 
 
 def dematricize(A, mode, shape):
@@ -91,30 +90,30 @@ def dematricize(A, mode, shape):
     A = A.reshape(current_shape)
     perm = list(range(1, len(shape)))
     perm = perm[:mode] + [0] + perm[mode:]
-    A = np.transpose(A, perm)
+    A = A.permute(perm)
     return A
 
 
 def right_mul_pinv(A, B, cond=None):
-    """Compute numerically stable product ``A@np.linalg.pinv(B)``"""
-    lstsq = scipy.linalg.lstsq(B.T, A.T, cond=cond)
+    """Compute numerically stable product ``A@torch.linalg.pinv(B)``"""
+    lstsq = torch.linalg.lstsq(B.T, A.T)
 
     return lstsq[0].T
 
 
 def left_mul_pinv(A, B, cond=None):
-    """Compute numerically stable product ``np.linalg.pinv(A)@B``"""
-    lstsq = scipy.linalg.lstsq(A, B, cond=cond)
+    """Compute numerically stable product ``torch.linalg.pinv(A)@B``"""
+    lstsq = torch.linalg.lstsq(A.float(), B)
 
     return lstsq[0]
 
 
-def projector(X: npt.NDArray, Y: Optional[npt.NDArray] = None) -> npt.NDArray:
+def projector(X, Y = None):
     r"""Compute oblique projector :math:`\mathcal P_{X,Y}`"""
     if Y is None:
         Y = X
 
-    P = X @ np.linalg.pinv(Y.T @ X) @ Y.T
+    P = X @ torch.linalg.pinv(Y.T @ X) @ Y.T
     return P
 
 
@@ -174,7 +173,6 @@ def process_tt_rank(
 
     return rank_tuple
 
-
 class MultithreadedRNG:
     """
     Multithreaded standard normal random number generator.
@@ -193,15 +191,15 @@ class MultithreadedRNG:
         ]
 
         self.shape = shape
-        n = np.prod(shape)
+        n = torch.prod(torch.tensor(shape))
         self.executor = concurrent.futures.ThreadPoolExecutor(threads)
-        self.values = np.empty(n)
-        self.step = np.ceil(n / threads).astype(np.int_)
+        self.values = torch.empty(n)
+        self.step = torch.ceil(n / threads).long()
         self.fill()
 
     def fill(self):
         def _fill(random_state, out, first, last):
-            random_state.standard_normal(out=out[first:last])
+            out[first:last] = torch.randn((last - first))
 
         futures = {}
         for i in range(self.threads):

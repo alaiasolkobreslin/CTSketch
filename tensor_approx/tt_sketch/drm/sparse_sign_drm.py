@@ -1,6 +1,6 @@
 from typing import Optional, Tuple, Union
 
-import numpy as np
+import torch
 # from tt_sketch.drm.fast_lazy_gaussian import inds_to_sparse_sign  # type: ignore
 from tt_sketch.drm_base import CanSlice, handle_transpose
 from tt_sketch.sketching_methods.abstract_methods import CansketchSparse
@@ -36,9 +36,7 @@ class SparseSignDRM(CansketchSparse, CanSlice):
         d = len(tensor.shape)
         for mu in range(d - 1):
             shape = tensor.shape[: mu + 1]
-            sketch_seed = np.mod(
-                mu + self.seed, 2**63, dtype=np.uint64
-            )  # ensure safe casting to uint
+            sketch_seed = (mu + self.seed) % 2**63  # ensure safe casting to uint
             sketch_mat = inds_to_sparse_sign(
                 tensor.indices[: mu + 1],
                 shape,

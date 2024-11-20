@@ -1,7 +1,8 @@
 import numpy as np
 import tensorly as tl
+import torch
 
-tl.set_backend('numpy')
+tl.set_backend('pytorch')
 
 class TensorInfoBucket(object):
     def __init__(self, tensor_shape, ks, ranks, ss = []):
@@ -34,17 +35,17 @@ class RandomInfoBucket(object):
 def random_matrix_generator(m, n, Rinfo_bucket):
 
     std, typ, random_seed, sparse_factor = Rinfo_bucket.get_info()
-    np.random.seed(random_seed)
+    torch.manual_seed(random_seed)
     types = set(['g', 'u', 'sp'])
     assert typ in types, "please aset your type of random variable correctly"
 
     if typ == 'g':
-        return np.random.normal(0,1, size = (m,n))*std
+        return torch.randn((m, n))*std
     elif typ == 'u':
-        return np.random.uniform(low = -1, high = 1, size = (m,n))*np.sqrt(3)*std
+        return (torch.rand((m, n))*2 - 1)*torch.sqrt(torch.tensor(3))*std
     elif typ == 'sp':
-        return np.random.binomial(n = 1,p = sparse_factor,size = (m,n))*\
-        np.random.choice([-1,1], size = (m,n))*np.sqrt(3)*std
+        return torch.distributions.Binomial(1, sparse_factor).sample((m, n))*\
+        torch.where(torch.randint(-1, 1, (2,3)) == 0, 1, -1)*torch.sqrt(3)*std
     elif typ == 'ssrft': 
         return 0
 
@@ -54,14 +55,14 @@ def tensor_gen_help(core,arms):
     :param arms: those arms n*s
     :return:
     '''
-    for i in np.arange(len(arms)):
+    for i in torch.arange(len(arms)):
         prod = tl.tenalg.mode_dot(core,arms[i],mode =i)
     return prod 
 
 
 def generate_super_diagonal_tensor(diagonal_elems, dim):
     n = len(diagonal_elems)
-    tensor = np.zeros(np.repeat(n, dim))
+    tensor = torch.zeros(torch.Tensor(n).repeat(dim))
     for i in range(n):
         index = tuple([i for _ in range(dim)])
         tensor[index] = diagonal_elems[i]
@@ -79,18 +80,18 @@ def square_tensor_gen(n, r, dim = 3,  typ = 'id', noise_level = 0, seed = None):
     :return: The tensor with noise, and The tensor without noise
     '''
     if seed: 
-        np.random.seed(seed) 
+        torch.manual_seed(seed)
 
     types = set(['id', 'lk', 'fpd', 'spd', 'sed', 'fed'])
     assert typ in types, "please set your type of tensor correctly"
-    total_num = np.power(n, dim)
+    total_num = torch.pow(n, dim)
 
     if typ == 'id':
         elems = [1 for _ in range(r)]
         elems.extend([0 for _ in range(n-r)])
-        noise = np.random.normal(0, 1, [n for _ in range(dim)])
+        noise = torch.randn([n for _ in range(dim)])
         X0 = generate_super_diagonal_tensor(elems, dim)
-        return X0 +noise*np.sqrt((noise_level**2)*r/total_num), X0
+        return X0 +noise*torch.sqrt((noise_level**2)*r/total_num), X0
         
     if typ == 'spd':
         elems = [1 for _ in range(r)]
@@ -106,36 +107,36 @@ def square_tensor_gen(n, r, dim = 3,  typ = 'id', noise_level = 0, seed = None):
 
     if typ == 'sed':
         elems = [1 for _ in range(r)]
-        elems.extend([np.power(10, -0.25*i) for i in range(2, n - r + 2)])
+        elems.extend([torch.pow(10, -0.25*i) for i in range(2, n - r + 2)])
         X0 = generate_super_diagonal_tensor(elems, dim)
         return X0, X0
 
     if typ == 'fed':
         elems = [1 for _ in range(r)]
-        elems.extend([np.power(10, (-1.0)*i) for i in range(2, n - r + 2)])
+        elems.extend([torch.pow(10, (-1.0)*i) for i in range(2, n - r + 2)])
         X0 = generate_super_diagonal_tensor(elems, dim)
         return X0, X0 
 
     if typ == "lk":
-        core_tensor = np.random.uniform(0,1,[r for _ in range(dim)])
+        core_tensor = torch.rand([r for _ in range(dim)])
         arms = []
         tensor = core_tensor
-        for i in np.arange(dim):
-            arm = np.random.normal(0,1,size = (n,r))
-            arm, _ = np.linalg.qr(arm)
+        for i in torch.arange(dim):
+            arm = torch.randn((n,r))
+            arm, _ = torch.linalg.qr(arm)
             arms.append(arm)
             tensor = tl.tenalg.mode_dot(tensor, arm, mode=i)
-        true_signal_mag = np.linalg.norm(core_tensor)**2
-        noise = np.random.normal(0, 1, np.repeat(n, dim))
-        X = tensor + noise*np.sqrt((noise_level**2)*true_signal_mag/np.product\
+        true_signal_mag = torch.linalg.norm(core_tensor)**2
+        noise = torch.randn(torch.Tensor(n).repeat(dim))
+        X = tensor + noise*torch.sqrt((noise_level**2)*true_signal_mag/torch.prod\
             (total_num))
         return X, tensor
 
 def eval_rerr(X,X_hat,X0):
     error = X-X_hat
-    return np.linalg.norm(error.reshape(np.size(error),1),'fro')/ \
-    np.linalg.norm(X0.reshape(np.size(X0),1),'fro')
+    return torch.linalg.norm(error.reshape(-1 ,1),'fro')/ \
+    torch.linalg.norm(X0.reshape(-1,1),'fro')
 
 if __name__ == "__main__":
-    tl.set_backend('numpy')
+    tl.set_backend('pytorch')
     X = square_tensor_gen(5, 3, dim=3, typ='id', noise_level=0.1)

@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from typing import Optional, Tuple, Union
 
-import numpy as np
-from numpy.random import SeedSequence
+import torch
 from tt_sketch.drm_base import CanIncreaseRank, handle_transpose
 from tt_sketch.sketching_methods.abstract_methods import (
     CansketchDense,
@@ -47,12 +46,12 @@ class DenseGaussianDRM(
             dim_prod *= n
 
             # TODO: make this correctly work with rank_increase and random_normal
-            np.random.seed(seed)
-            seed_offset = hash(np.random.uniform(0, dim_prod))
-            np.random.seed(np.mod(self.seed + seed_offset, 2**32 - 1))
+            torch.manual_seed(seed)
+            seed_offset = hash(torch.rand(1)*dim_prod)
+            torch.manual_seed((self.seed + seed_offset % (2**32 - 1)))
 
             # sketching_mat = random_normal(shape=(r, dim_prod), seed=seed)
-            sketching_mat = np.random.normal(size=(r, dim_prod))
+            sketching_mat = torch.randn((r, dim_prod))
             sketching_mat = sketching_mat[self.rank_min[mu] : self.rank_max[mu]]
             self.sketching_mats.append(sketching_mat)
 
@@ -62,7 +61,7 @@ class DenseGaussianDRM(
         for mu in range(d - 1):
             shape = tensor.shape[: mu + 1]
             inds = tensor.indices[: mu + 1]
-            inds = np.ravel_multi_index(inds, shape)  # type: ignore
+            inds = inds[0] * shape[1] + inds[1]  # type: ignore
             sketching_vec = self.sketching_mats[mu][:, inds]
             yield sketching_vec
 

@@ -1270,7 +1270,7 @@ __pyx_t_2 = __pyx_memoryview_fromslice(__pyx_t_4, 1, (PyObject *(*)(char *)) __p
   __pyx_t_1.data = NULL;
 </pre><pre class="cython line score-0">&#xA0;<span class="">131</span>:         indices, shape, 0, nnz, seed</pre>
 <pre class="cython line score-0">&#xA0;<span class="">132</span>:     )</pre>
-<pre class="cython line score-38" onclick="(function(s){s.display=s.display==='block'?'none':'block'})(this.nextElementSibling.style)">+<span class="">133</span>:     cdef short[:] sparse_sign = np.zeros((N*rank), dtype=np.int16)</pre>
+<pre class="cython line score-38" onclick="(function(s){s.display=s.display==='block'?'none':'block'})(this.nextElementSibling.style)">+<span class="">133</span>:     cdef short[:] sparse_sign = torch.zeros((N*rank), dtype=np.int16)</pre>
 <pre class='cython code score-38 '>  <span class='pyx_c_api'>__Pyx_GetModuleGlobalName</span>(__pyx_t_2, __pyx_n_s_np);<span class='error_goto'> if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 133, __pyx_L1_error)</span>
   <span class='refnanny'>__Pyx_GOTREF</span>(__pyx_t_2);
   __pyx_t_3 = <span class='pyx_c_api'>__Pyx_PyObject_GetAttrStr</span>(__pyx_t_2, __pyx_n_s_zeros);<span class='error_goto'> if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 133, __pyx_L1_error)</span>

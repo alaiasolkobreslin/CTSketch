@@ -1,8 +1,10 @@
 import tensorly as tl
-import numpy as np
+import torch
 from .util import random_matrix_generator
 from .util import RandomInfoBucket
 from .util import square_tensor_gen
+
+tl.set_backend("pytorch")
 
 class Sketch(object):
   
@@ -13,7 +15,7 @@ class Sketch(object):
         :param ks: k, the reduced dimension of the arm tensors, an 1-d array 
         '''
         std, typ, random_seed, sparse_factor = Rinfo_bucket.get_info()
-        total_num = np.prod(tensor_shape)
+        total_num = tensor_shape.numel()
         for n in range(len(tensor_shape)):
             n1 = total_num//tensor_shape[n] # I_(-n)
             yield random_matrix_generator(n1, ks[n], Rinfo_bucket)
@@ -38,7 +40,7 @@ class Sketch(object):
         :param sparse_factor: only typ == 'sp', p matters representing the
          sparse factor
         '''
-        tl.set_backend('numpy')
+        tl.set_backend('pytorch')
         self.X = X
         self.N = len(X.shape)
         self.ss = ss
@@ -53,7 +55,7 @@ class Sketch(object):
         self.std = std 
 
         # set the random seed for following procedure
-        np.random.seed(random_seed) 
+        torch.manual_seed(random_seed)
         Rinfo_bucket = RandomInfoBucket(std = self.std, typ=self.typ, 
             random_seed = self.random_seed, sparse_factor = self.sparse_factor)
 
@@ -62,9 +64,9 @@ class Sketch(object):
 
         mode_n = 0
         for rm in rm_generator:
-            self.arm_sketches.append(np.dot(tl.unfold(self.X, mode=mode_n), rm))
+            self.arm_sketches.append((tl.unfold(self.X, mode=mode_n).mm(rm)))
             mode_n += 1
-        np.random.seed(random_seed) 
+        torch.manual_seed(random_seed) 
 
         if self.ss != []:
             rm_generator = Sketch.sketch_core_rm_generator(self.tensor_shape, \
@@ -84,7 +86,7 @@ class Sketch(object):
     def get_phis(self):
         return self.phis
 if __name__ == "__main__":
-    tl.set_backend('numpy')
+    tl.set_backend('pytorch')
     X,X0 = square_tensor_gen(10, 3, dim=3, typ='spd', noise_level=0.1)
     print(tl.unfold(X, mode=1).shape)
     tensor_sketch = Sketch(X, [5,5,5], random_seed = 1, ss = [], typ = 'g', \
@@ -108,23 +110,22 @@ if __name__ == "__main__":
 
     #=======================
     noise_level = 0.01
-    ranks = np.array((5, 10, 15))
+    ranks = torch.tensor((5, 10, 15))
     dim = 3 
-    ns = np.array((100,200,300)) 
-    ks = np.array((100, 200, 300))
+    ns = torch.tensor((100,200,300)) 
+    ks = torch.tensor((100, 200, 300)) 
     ss = ks
-    core_tensor = np.random.uniform(0,1,ranks)
+    core_tensor = torch.rand(ranks)
     arms = []
     tensor = core_tensor
-    for i in np.arange(dim):
-        arm = np.random.normal(0,1,size = (ns[i],ranks[i]))
-        arm, _ = np.linalg.qr(arm)
+    for i in torch.arange(dim):
+        arm = torch.randn((ns[i],ranks[i]))
+        arm, _ = torch.linalg.qr(arm)
         arms.append(arm)
         tensor = tl.tenalg.mode_dot(tensor, arm, mode=i)
-    true_signal_mag = np.linalg.norm(core_tensor)**2
-    noise = np.random.normal(0, 1, ns)
-    X = tensor + noise*np.sqrt((noise_level**2)*true_signal_mag/np.product\
-        (np.prod(ns)))
+    true_signal_mag = torch.linalg.norm(core_tensor)**2
+    noise = torch.randn(ns)
+    X = tensor + noise*torch.sqrt((noise_level**2)*true_signal_mag/torch.prod(torch.prod(ns)))
 
     tensor_sketch = Sketch(X, ks, random_seed=1, ss=ss, typ='g', \
         sparse_factor=0.1, store_phis = True)

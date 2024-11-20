@@ -18,9 +18,8 @@ from typing import (
 )
 import warnings
 
-import numpy as np
+import torch
 from numpy.random import SeedSequence
-import numpy.typing as npt
 
 from tt_sketch.utils import ArrayList, TTRank, process_tt_rank, random_normal
 
@@ -46,7 +45,7 @@ class Tensor(ABC):
         """Number of floating point elements used to store the tensor."""
 
     @abstractmethod
-    def to_numpy(self) -> npt.NDArray[np.float64]:
+    def to_numpy(self):
         """Converts the tensor to a (dense) numpy array of same shape."""
 
     def error(
@@ -62,22 +61,22 @@ class Tensor(ABC):
         This is not numerically stable, and gives inaccurate results below
         relative errors of around 1e-8.
         """
-        if isinstance(other, np.ndarray):
+        if isinstance(other, torch.Tensor):
             other = DenseTensor(other)
         other_norm = other.norm()
         if fast:
             self_norm = self.norm()
             dot = self.dot(other)
             norm_sum = self_norm**2 + other_norm**2
-            error = np.sqrt(norm_sum) * np.sqrt(np.abs(1 - 2 * dot / norm_sum))
+            error = torch.sqrt(norm_sum) * torch.sqrt(torch.abs(1 - 2 * dot / norm_sum))
         else:
-            error = np.linalg.norm(self.to_numpy() - other.to_numpy())
+            error = torch.linalg.norm(self.to_numpy() - other.to_numpy())
         if relative:
             if other_norm == 0:
-                return np.inf
+                return torch.inf
             error /= other_norm
         if rmse:
-            error /= np.sqrt(np.prod(self.shape))
+            error /= torch.sqrt(torch.prod(self.shape))
         return error
 
     @property
@@ -126,12 +125,12 @@ class Tensor(ABC):
             return other.dot(self, reverse=True)
         self_np = self.to_numpy().reshape(-1)
         other_np = other.to_numpy().reshape(-1)
-        return np.dot(self_np, other_np)
+        return torch.matmul(self_np, other_np)
 
     def norm(self) -> float:
         """L2 norm of the tensor"""
-        # np.abs because dot can be negative due to numerical errors
-        return np.sqrt(np.abs(self.dot(self)))
+        # torch.abs because dot can be negative due to numerical errors
+        return torch.sqrt(torch.abs(self.dot(self)))
 
     def __matmul__(self: TType, other: TType) -> float:
         return self.dot(other)
@@ -139,9 +138,9 @@ class Tensor(ABC):
 
 class DenseTensor(Tensor):
     shape: Tuple[int, ...]
-    data: npt.NDArray[np.float64]
+    data: torch.Tensor
 
-    def __init__(self, data: npt.NDArray) -> None:
+    def __init__(self, data) -> None:
         self.shape = data.shape
         self.data = data
 
@@ -154,21 +153,22 @@ class DenseTensor(Tensor):
         """
         X = self.data
         n_dims = len(X.shape)
-        inds = np.indices(X.shape).reshape(n_dims, -1)
+        indices = torch.meshgrid([torch.arange(s, dtype=torch.int64) for s in X.shape], indexing='ij')
+        inds = torch.stack(indices).reshape(n_dims, -1)
         entries = X.reshape(-1)
         return SparseTensor(X.shape, inds, entries)
 
     @property
     def T(self) -> DenseTensor:
         permutation = tuple(range(len(self.shape))[::-1])
-        new_data = np.transpose(self.data, permutation)
+        new_data = self.data.permute(permutation)
         return self.__class__(new_data)
 
     @property
     def size(self) -> int:
-        return np.prod(self.shape)
+        return torch.prod(self.shape)
 
-    def to_numpy(self) -> npt.NDArray[np.float64]:
+    def to_numpy(self):
         return self.data
 
     def __repr__(self) -> str:
@@ -188,19 +188,19 @@ class SparseTensor(Tensor):
     shape: Tuple[int, ...]
 
     #: The indices of the non-zero entries
-    indices: Union[npt.NDArray, Tuple[npt.NDArray, ...]]
+    indices: Union[torch.Tensor, Tuple[torch.Tensor, ...]]
 
     #: The entries of the non-zero entries
-    entries: npt.NDArray[np.float64]
+    entries: torch.Tensor
 
     def __post_init__(self):
         if isinstance(self.indices, tuple):
-            self.indices = np.stack(self.indices)
+            self.indices = torch.stack(self.indices)
 
     @property
     def T(self) -> SparseTensor:
-        new_indices = self.indices[::-1]
-        new_shape = self.shape[::-1]
+        new_indices = torch.flip(self.indices, (0,))
+        new_shape = torch.flip(torch.tensor(self.shape), (0,))
         return self.__class__(new_shape, new_indices, self.entries)
 
     @property
@@ -233,13 +233,13 @@ class SparseTensor(Tensor):
             )
         return TensorSum(summands)
 
-    def to_numpy(self) -> npt.NDArray[np.float64]:
-        X = np.zeros(self.shape)
+    def to_numpy(self):
+        X = torch.zeros(self.shape)
         X[tuple(self.indices)] = self.entries
         return X
 
     def norm(self) -> float:
-        return float(np.linalg.norm(self.entries))
+        return float(torch.linalg.norm(self.entries))
 
     def __repr__(self) -> str:
         return (
@@ -250,7 +250,7 @@ class SparseTensor(Tensor):
     def dot(self, other: Tensor, reverse=False) -> float:
         try:
             other_entries = other.gather(self.indices)
-            return np.dot(other_entries, self.entries)
+            return other_entries.matmul(self.entries)
         except AttributeError:
             return super().dot(other, reverse=reverse)
 
@@ -262,10 +262,10 @@ class SparseTensor(Tensor):
         Generates a random sparse tensor with `nnz` non-zero gaussian entries
         """
         if seed is not None:
-            np.random.seed(seed)
-        total_size = np.prod(shape)
-        indices_flat = np.random.choice(total_size, size=nnz, replace=False)
-        indices = np.unravel_index(indices_flat, shape)
+            torch.manual_seed(seed)
+        total_size = torch.prod(shape)
+        indices_flat = torch.randint(total_size, (nnz,))
+        indices = torch.div(indices_flat, shape[1], rounding_mode='floor'), indices_flat % shape[1]
         entries = random_normal(shape=(nnz,), seed=seed)
         return cls(shape, indices, entries)
 
@@ -273,13 +273,14 @@ class SparseTensor(Tensor):
         return self.__class__(self.shape, self.indices, self.entries * other)
 
     def gather(
-        self, indices: Tuple[npt.NDArray, ...]
-    ) -> npt.NDArray[np.float64]:
+        self, indices
+    ):
         """
         Gathers the entries corresponding to the given indices.
         """
-        dense_indices = np.ravel_multi_index(indices, self.shape)
-        out = np.zeros(len(dense_indices))
+        
+        dense_indices = indices[0] * self.shape[1] + indices[1]
+        out = torch.zeros(len(dense_indices))
         dic = self.dict
         for i, ind in enumerate(dense_indices):
             out[i] = dic.get(ind, 0.0)
@@ -287,7 +288,7 @@ class SparseTensor(Tensor):
 
     @cached_property
     def dict(self) -> Dict[int, float]:
-        dense_indices = np.ravel_multi_index(self.indices, self.shape)
+        dense_indices = self.indices[0] * self.shape[1] + self.indices[1]
         return {i: v for i, v in zip(dense_indices, self.entries)}
 
 
@@ -309,14 +310,14 @@ class TensorTrain(Tensor):
 
     @property
     def T(self) -> TensorTrain:
-        new_cores = [np.transpose(C, (2, 1, 0)) for C in self.cores[::-1]]
+        new_cores = [C.permute(2, 1, 0) for C in self.cores[::-1]]
         return self.__class__(new_cores)
 
-    def to_numpy(self) -> npt.NDArray:
+    def to_numpy(self):
         dense_tensor = self.cores[0]
         dense_tensor = dense_tensor.reshape(dense_tensor.shape[1:])
         for C in self.cores[1:]:
-            dense_tensor = np.einsum("...j,jkl->...kl", dense_tensor, C)
+            dense_tensor = torch.einsum("...j,jkl->...kl", dense_tensor, C)
         dense_tensor = dense_tensor.reshape(dense_tensor.shape[:-1])
         return dense_tensor
 
@@ -357,6 +358,7 @@ class TensorTrain(Tensor):
         cores = []
         seq = SeedSequence(seed)
         seeds = seq.generate_state(d)
+        # seeds = torch.randint(0, 10000, (d,))
         for i in range(d):
             r1 = rank_augmented[i]
             r2 = rank_augmented[i + 1]
@@ -364,11 +366,11 @@ class TensorTrain(Tensor):
             core = random_normal(shape=(r1 * n, r2), seed=seeds[i])
 
             if orthog and i < d - 1:
-                core, _ = np.linalg.qr(core, mode="reduced")
+                core, _ = torch.linalg.qr(core, mode="reduced")
             elif norm_goal == "norm-1":
-                core /= np.sqrt(r1 * n)
+                core /= torch.sqrt(torch.tensor(r1 * n))
             elif norm_goal == "norm-preserve":
-                core /= np.sqrt(r1)
+                core /= torch.sqrt(torch.tensor(r1))
             else:
                 raise ValueError(f"Unknown norm goal: {norm_goal}")
 
@@ -384,15 +386,15 @@ class TensorTrain(Tensor):
         rank = process_tt_rank(rank, shape, trim=False)
         cores = []
         for (r1, d, r2) in zip((1,) + rank, shape, rank + (1,)):
-            cores.append(np.zeros((r1, d, r2)))
+            cores.append(torch.zeros((r1, d, r2)))
         return cls(cores)
 
-    def partial_dense(self, dir: str = "lr") -> ArrayList:
+    def partial_dense(self, dir: str = "lr"):
         """Do partial contractions to dense tensor; ``X[0].X[1]...X[mu]``"""
         if dir == "lr":
             partial_cores = [self.cores[0].reshape(-1, self.cores[0].shape[-1])]
             for core in self.cores[1:-1]:
-                new_core = np.einsum("ij,jkl->ikl", partial_cores[-1], core)
+                new_core = torch.einsum("ij,jkl->ikl", partial_cores[-1], core)
                 new_core = new_core.reshape(-1, new_core.shape[-1])
                 partial_cores.append(new_core)
         elif dir == "rl":
@@ -400,40 +402,38 @@ class TensorTrain(Tensor):
                 self.cores[-1].reshape(self.cores[-1].shape[0], -1)
             ]
             for core in self.cores[-2:0:-1]:
-                new_core = np.einsum("ijk,kl->ijl", core, partial_cores[-1])
+                new_core = torch.einsum("ijk,kl->ijl", core, partial_cores[-1])
                 new_core = new_core.reshape(new_core.shape[0], -1)
                 partial_cores.append(new_core)
         return partial_cores
 
-    def __getitem__(self, index: int) -> npt.NDArray:
+    def __getitem__(self, index: int):
         return self.cores[index]
 
-    def __setitem__(self, index: int, data: npt.NDArray) -> None:
+    def __setitem__(self, index: int, data) -> None:
         self.cores[index] = data
 
     def gather(
         self,
-        idx: Union[npt.NDArray[np.int64], Tuple[npt.NDArray[np.int64], ...]],
-    ) -> npt.NDArray:
+        idx,
+    ):
         """Gather entries of dense tensor according to indices.
 
         For each row of `idx` this returns one number. This number is obtained
         by multiplying the slices of each core corresponding to each index (in
         a left-to-right fashion).
         """
-        if not isinstance(idx, np.ndarray):
-            idx_array = np.stack(idx)
+        if not isinstance(idx, torch.Tensor):
+            idx_array = torch.stack(idx)
         else:
-            idx_array = np.array(idx)
+            idx_array = torch.tensor(idx)
         N = idx_array.shape[1]
-        result = np.take(
-            self[0].reshape(self[0].shape[1:]), idx_array[0], axis=0
-        )
+        result = torch.index_select(self[0].reshape(self[0].shape[1:]), 0, idx_array[0])
         for i in range(1, self.ndim):
             r = self[i].shape[2]
-            next_step = np.zeros((N, r))
+            next_step = torch.zeros((N, r))
             for j in range(self.shape[i]):
-                idx_mask = np.where(idx_array[i] == j)
+                idx_mask = torch.where(idx_array[i] == j)
                 mat = self[i][:, j, :]
                 next_step[idx_mask] = result[idx_mask] @ mat
             result = next_step
@@ -441,7 +441,7 @@ class TensorTrain(Tensor):
 
     def norm(self) -> float:
         self_orth = self.orthogonalize()
-        return np.linalg.norm(self_orth.cores[-1])
+        return torch.linalg.norm(self_orth.cores[-1])
 
     def round(
         self,
@@ -467,15 +467,15 @@ class TensorTrain(Tensor):
         max_rank = process_tt_rank(max_rank, tt.shape, trim=True)
 
         new_cores = []
-        US_trunc: npt.NDArray
+        US_trunc
         for mu, C in list(enumerate(tt.cores))[::-1]:
             if mu < tt.ndim - 1:
-                C = np.einsum("ijk,kl->ijl", C, US_trunc)
+                C = torch.einsum("ijk,kl->ijl", C, US_trunc)
             if mu > 0:
                 C_mat = C.reshape(C.shape[0], C.shape[1] * C.shape[2])
-                U, S, Vt = np.linalg.svd(C_mat)
-                r = max(1, min(np.sum(S > S[0] * eps), max_rank[mu - 1]))
-                US_trunc = U[:, :r] @ np.diag(S[:r])
+                U, S, Vt = torch.linalg.svd(C_mat)
+                r = max(1, min(torch.sum(S > S[0] * eps), max_rank[mu - 1]))
+                US_trunc = U[:, :r] @ torch.diag(S[:r])
                 Vt_trunc = Vt[:r, :]
                 new_cores.append(Vt_trunc.reshape(r, C.shape[1], C.shape[2]))
             else:
@@ -483,23 +483,23 @@ class TensorTrain(Tensor):
 
         return self.__class__(new_cores[::-1])
 
-    def svdvals(self) -> List[npt.NDArray]:
+    def svdvals(self):
         """Return singular value of each mode"""
         tt = self.orthogonalize()
         svdvals = []
-        U: npt.NDArray
-        S: npt.NDArray
+        U
+        S
         for mu, C in list(enumerate(tt.cores))[::-1]:
             if mu < tt.ndim - 1:
-                US = U @ np.diag(S)
-                C = np.einsum("ijk,kl->ijl", C, US)
+                US = U @ torch.diag(S)
+                C = torch.einsum("ijk,kl->ijl", C, US)
 
             if mu > 0:
                 C_mat = C.reshape(C.shape[0], C.shape[1] * C.shape[2])
             else:
                 C_mat = C.reshape(C.shape[0] * C.shape[1], C.shape[2])
 
-            U, S, _ = np.linalg.svd(C_mat)
+            U, S, _ = torch.linalg.svd(C_mat)
             svdvals.append(S)
         svdvals = svdvals[::-1]
         return svdvals
@@ -524,17 +524,17 @@ class TensorTrain(Tensor):
         Note, this does not overload the addition operator ``+``; the addition
         operator instead returns a lazy ``TensorSum`` object.
         """
-        new_cores = [np.concatenate((self.cores[0], other.cores[0]), axis=2)]
+        new_cores = [torch.concat((self.cores[0], other.cores[0]), axis=2)]
         for C1, C2 in zip(self.cores[1:-1], other.cores[1:-1]):
             r1, d, r2 = C1.shape
             r3, _, r4 = C2.shape
-            zeros1 = np.zeros((r1, d, r4))
-            zeros2 = np.zeros((r3, d, r2))
-            row1 = np.concatenate((C1, zeros1), axis=2)
-            row2 = np.concatenate((zeros2, C2), axis=2)
-            new_cores.append(np.concatenate((row1, row2), axis=0))
+            zeros1 = torch.zeros((r1, d, r4))
+            zeros2 = torch.zeros((r3, d, r2))
+            row1 = torch.concat((C1, zeros1), axis=2)
+            row2 = torch.concat((zeros2, C2), axis=2)
+            new_cores.append(torch.concat((row1, row2), axis=0))
         new_cores.append(
-            np.concatenate((self.cores[-1], other.cores[-1]), axis=0)
+            torch.concat((self.cores[-1], other.cores[-1]), axis=0)
         )
         new_tt = self.__class__(new_cores)
         return new_tt
@@ -546,26 +546,24 @@ class TensorTrain(Tensor):
         Result is computed in a left-to-right sweep.
         """
         if isinstance(other, TensorTrain):
-            result = np.einsum("ijk,ljm->km", self.cores[0], other.cores[0])
+            result = torch.einsum("ijk,ljm->km", self.cores[0], other.cores[0])
             for core1, core2 in zip(self.cores[1:], other.cores[1:]):
                 # optimize reduces complexity from r^4*n to r^3*n
-                result = np.einsum(
-                    "ij,ika,jkb->ab", result, core1, core2, optimize="optimal"
-                )
-            return np.sum(result)
+                result = torch.einsum("ij,ika,jkb->ab", result, core1, core2)
+            return torch.sum(result)
         else:
             return super().dot(other, reverse=reverse)
 
     def orthogonalize(self) -> TensorTrain:
         """Do QR sweep to left-orthogonalize"""
         new_cores = []
-        R: npt.NDArray
+        R
         for mu, C in enumerate(self.cores):
             if mu > 0:
-                C = np.einsum("ij,jkl->ikl", R, C)
+                C = torch.einsum("ij,jkl->ikl", R, C)
             if mu < self.ndim - 1:
                 C_mat = C.reshape(C.shape[0] * C.shape[1], C.shape[2])
-                Q, R = np.linalg.qr(C_mat)
+                Q, R = torch.linalg.qr(C_mat)
                 new_cores.append(Q.reshape(C.shape[0], C.shape[1], -1))
             else:
                 new_cores.append(C)
@@ -600,10 +598,10 @@ class TensorTrain(Tensor):
             if relative:
                 other_norm = other.norm()
                 if other_norm == 0:
-                    return np.inf
+                    return torch.inf
                 error /= other_norm
             if rmse:
-                error /= np.sqrt(np.prod(self.shape))
+                error /= torch.sqrt(torch.prod(self.shape))
             return error
         else:
             return super().error(other, relative=relative, rmse=rmse, fast=fast)
@@ -630,8 +628,8 @@ class TensorSum(Generic[TType], Tensor):
         new_tensors: List[TType] = [X.T for X in self.tensors]
         return self.__class__(new_tensors)
 
-    def to_numpy(self) -> npt.NDArray[np.float64]:
-        s = np.zeros(self.shape)
+    def to_numpy(self):
+        s = torch.zeros(self.shape)
         for X in self.tensors:
             s += X.to_numpy()
         return s
@@ -693,13 +691,13 @@ class CPTensor(Tensor):
         new_cores = self.cores[::-1]
         return self.__class__(new_cores)
 
-    def to_numpy(self) -> npt.NDArray:
+    def to_numpy(self):
         dense_tensor = self.cores[0]  # shape (n0,r)
         for C in self.cores[1:]:
-            dense_tensor = np.einsum(
+            dense_tensor = torch.einsum(
                 "...j,ij->...ij", dense_tensor, C
             )  # shape (n0,...,nk,r)
-        dense_tensor = np.sum(dense_tensor, axis=-1)
+        dense_tensor = torch.sum(dense_tensor, axis=-1)
         return dense_tensor
 
     @classmethod
@@ -712,24 +710,24 @@ class CPTensor(Tensor):
         cores = []
         for i in range(d):
             core = random_normal(shape=(shape[i], rank), seed=seeds[i])
-            core /= np.sqrt(shape[i])
+            core /= torch.sqrt(shape[i])
             cores.append(core)
 
         return cls(cores)
 
-    def __getitem__(self, index: int) -> npt.NDArray:
+    def __getitem__(self, index: int):
         return self.cores[index]
 
-    def __setitem__(self, index: int, data: npt.NDArray) -> None:
+    def __setitem__(self, index: int, data) -> None:
         self.cores[index] = data
 
-    def gather(self, idx: Tuple[npt.NDArray[np.int64], ...]) -> npt.NDArray:
+    def gather(self, idx):
         """Obtain the values of the tensor at the given indices."""
 
         res = 1
         for C, id in zip(self.cores, idx):
             res *= C[id]
-        return np.sum(res, axis=1)
+        return torch.sum(res, axis=1)
 
     def __repr__(self) -> str:
         return (
@@ -750,7 +748,7 @@ class TuckerTensor(Tensor):
     factor matrices of shape ``(si, ni)``, where ``(n1, ..., nd)`` is the
     overall shape of the tensor."""
 
-    def __init__(self, factors: ArrayList, core: npt.NDArray) -> None:
+    def __init__(self, factors: ArrayList, core) -> None:
         self.core = core
         self.factors = factors
 
@@ -761,22 +759,22 @@ class TuckerTensor(Tensor):
     def T(self) -> TuckerTensor:
         new_factors = self.factors[::-1]
         permutation = tuple(range(len(self.shape))[::-1])
-        new_core = np.transpose(self.core, permutation)
+        new_core = self.core.permute(permutation)
         return self.__class__(new_factors, new_core)
 
     @property
     def size(self) -> int:
         return self.core.size + sum(U.size for U in self.factors)
 
-    def to_numpy(self) -> npt.NDArray[np.float64]:
+    def to_numpy(self) :
         core_contracted = self.core
         for i, U in enumerate(self.factors):
-            left_dim = np.prod(self.shape[:i], dtype=np.int64)
-            right_dim = np.prod(self.rank[i + 1 :], dtype=np.int64)
+            left_dim = torch.prod(self.shape[:i]).long()
+            right_dim = torch.prod(self.rank[i + 1 :]).long()
             core_mat = core_contracted.reshape(
                 left_dim, self.rank[i], right_dim
             )
-            core_contracted = np.einsum("ijk,jl->ilk", core_mat, U)
+            core_contracted = torch.einsum("ijk,jl->ilk", core_mat, U)
         return core_contracted.reshape(self.shape)
 
     def __mul__(self, other: float) -> TuckerTensor:
@@ -805,12 +803,14 @@ class TuckerTensor(Tensor):
 
         seq = SeedSequence(seed)
         core_seed = seq.generate_state(1)[0]
+        # master_generator = torch.Generator().manual_seed(seed)
+        # core_seed = int(master_generator.initial_seed())
         core = random_normal(shape=rank_tuple, seed=core_seed)
         factors = []
         seeds = seq.generate_state(d)
         for r, n, seed in zip(rank_tuple, shape, seeds):
             U = random_normal(shape=(r, n), seed=seed)
-            U = np.linalg.qr(U.T)[0].T
+            U = torch.linalg.qr(U.T)[0].T
             factors.append(U)
 
         return cls(factors, core)

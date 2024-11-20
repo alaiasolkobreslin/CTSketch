@@ -1,4 +1,4 @@
-import numpy as np
+import torch
 import tensorly as tl
 from .util import square_tensor_gen, TensorInfoBucket, RandomInfoBucket, eval_rerr
 from .sketch import Sketch
@@ -7,12 +7,14 @@ from tensorly.decomposition import tucker
 from .sketch_recover import SketchTwoPassRecover
 from .sketch_recover import SketchOnePassRecover
 
+tl.set_backend("pytorch")
+
 class TensorApprox(object): 
     """
     The wrapper class for approximating the target tensor with three methods: HOOI, two-pass sketching, and one pass sketching
     """
     def __init__(self, X, ranks, ks = [], ss = [], random_seed = 1, store_phis = True): 
-        tl.set_backend('numpy') 
+        tl.set_backend('pytorch') 
         self.X = X 
         self.ranks = ranks 
         self.ks = ks 
@@ -26,8 +28,8 @@ class TensorApprox(object):
             core, tucker_factors = tucker(self.X, self.ranks, init = 'svd') 
             X_hat = tl.tucker_to_tensor((core, tucker_factors)) 
             running_time = time.time() - start_time 
-            core_sketch = np.zeros(1) 
-            arm_sketches = [[] for i in np.arange(len(self.X.shape)) ]
+            core_sketch = core
+            arm_sketches = tucker_factors
             sketch_time = -1 
             recover_time = running_time
         elif method == "twopass":
@@ -64,10 +66,10 @@ if __name__ == '__main__':
     rank = 5 
     dim = 2 
     s = 2*k+1
-    ranks = np.repeat(rank,dim)
-    ks = np.repeat(k,dim)
-    ss = np.repeat(s,dim)
-    tensor_shape = np.repeat(n,dim)
+    ranks = torch.Tensor(rank).repeat(dim)
+    ks = torch.Tensor(k).repeat(dim)
+    ss = torch.Tensor(s).repeat(dim)
+    tensor_shape = torch.Tensor(n).repeat(dim)
     noise_level = 0.01
     gen_typ = 'lk' 
     X, _ = square_tensor_gen(n, rank, dim, gen_typ, noise_level, seed = 1) 
@@ -83,20 +85,20 @@ if __name__ == '__main__':
     # Test it for data with unequal side length
     ranks = [1, 1, 1]
     dim = 3 
-    ns = np.array((10,10,19)) 
-    ks = np.array((3, 3, 3))
+    ns = torch.tensor((10,10,19)) 
+    ks = torch.tensor((3, 3, 3))
     ss = (2*ks + 1)
-    core_tensor = np.random.uniform(0,1,ranks)
+    core_tensor = torch.rand(ranks)
     arms = []
     tensor = core_tensor
-    for i in np.arange(dim):
-        arm = np.random.normal(0,1,size = (ns[i],ranks[i]))
-        arm, _ = np.linalg.qr(arm)
+    for i in torch.arange(dim):
+        arm = torch.randn(0,1,size = (ns[i],ranks[i]))
+        arm, _ = torch.linalg.qr(arm)
         arms.append(arm)
         tensor = tl.tenalg.mode_dot(tensor, arm, mode=i)
-    true_signal_mag = np.linalg.norm(core_tensor)**2
-    noise = np.random.normal(0, 1, ns)
-    X = tensor + noise*np.sqrt((noise_level**2)*true_signal_mag/np.product(np.prod(ns)))
+    true_signal_mag = torch.linalg.norm(core_tensor)**2
+    noise = torch.randn(0, 1, ns)
+    X = tensor + noise*torch.sqrt((noise_level**2)*true_signal_mag/torch.prd(torch.prod(ns)))
     tapprox2 = TensorApprox(X, ranks, ks, ss) 
     _,_,_,rerr,_ = tapprox2.tensor_approx("hooi") 
     print(rerr)

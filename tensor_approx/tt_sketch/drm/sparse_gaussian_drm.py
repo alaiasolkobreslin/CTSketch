@@ -31,9 +31,7 @@ class SparseGaussianDRM(CansketchSparse, CanIncreaseRank):
         d = len(tensor.shape)
         for mu in range(d - 1):
             shape = tensor.shape[: mu + 1]
-            sketch_seed = np.mod(
-                mu + self.seed, 2**63, dtype=np.uint64
-            )  # ensure safe casting to uint
+            sketch_seed = mu + self.seed % 2**63 # ensure safe casting to uint
             sketch_mat = inds_to_normal(
                 tensor.indices[: mu + 1],
                 shape,

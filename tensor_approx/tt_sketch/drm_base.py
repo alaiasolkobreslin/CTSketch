@@ -4,8 +4,7 @@ from abc import ABC
 from copy import deepcopy
 from typing import Any, Callable, Dict, Optional, Tuple, Union
 
-from numpy import mod
-from numpy.random import uniform
+import torch
 
 from tt_sketch.utils import TTRank, process_tt_rank
 
@@ -58,8 +57,8 @@ class DRM(ABC):
 
         self.shape = shape
         if seed is None:
-            seed = hash(uniform())
-        seed = mod(seed, 2**32 - 1)
+            seed = hash(torch.rand(1))
+        seed = seed % (2**32 - 1)
         self.seed = seed  # type: ignore
 
     @property

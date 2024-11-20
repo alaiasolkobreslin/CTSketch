@@ -3,9 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple, Type
-
-import numpy as np
-import numpy.typing as npt
+import torch
 
 from tt_sketch.drm import (
     ALL_DRM,
@@ -55,7 +53,7 @@ def hmt_sketch(
     d = len(tensor.shape)
 
     if seed is None:
-        seed = np.mod(hash(np.random.uniform()), 2**32)
+        seed = hash(torch.rand(1)) % 2**32
 
     if drm is None:
         if drm_type is None:
@@ -94,7 +92,7 @@ def orthogonal_sketch(
     """
     d = len(tensor.shape)
 
-    right_rank_bigger = bool(np.all(np.array(left_rank) < np.array(right_rank)))
+    right_rank_bigger = bool(torch.all(torch.tensor(left_rank) < torch.tensor(right_rank)))
     if not right_rank_bigger:
         raise ValueError(
             f"The right rank needs to be larger than the left rank. "
@@ -103,7 +101,7 @@ def orthogonal_sketch(
         )
 
     if seed is None:
-        seed = np.mod(hash(np.random.uniform()), 2**32)
+        seed = hash(torch.rand(1)) % 2**32
 
     if left_drm is None:
         if left_drm_type is None:
@@ -129,7 +127,7 @@ def orthogonal_sketch(
             else:
                 right_drm_type = TensorTrainDRM
         right_rank = process_tt_rank(right_rank, tensor.shape, trim=False)
-        right_seed = np.mod(seed + hash(str(d)), 2**32)
+        right_seed = seed + hash(str(d)) % 2**32
         right_drm = right_drm_type(
             right_rank, transpose=True, shape=tensor.shape, seed=right_seed
         )
@@ -167,8 +165,8 @@ def stream_sketch(
     """
     d = len(tensor.shape)
 
-    left_rank_bigger = bool(np.all(np.array(left_rank) > np.array(right_rank)))
-    right_rank_bigger = bool(np.all(np.array(left_rank) < np.array(right_rank)))
+    left_rank_bigger = bool(torch.all(torch.tensor(left_rank) > torch.tensor(right_rank)))
+    right_rank_bigger = bool(torch.all(torch.tensor(left_rank) < torch.tensor(right_rank)))
     if not left_rank_bigger and not right_rank_bigger:
         raise ValueError(
             f"Left ranks or right ranks must be conistently larger or smaller "
@@ -177,7 +175,7 @@ def stream_sketch(
         )
 
     if seed is None:
-        seed = np.mod(hash(np.random.uniform()), 2**32)
+        seed = hash(torch.rand(1)) % 2**32
 
     if left_drm is None:
         if left_drm_type is None:
@@ -207,7 +205,7 @@ def stream_sketch(
         right_rank = process_tt_rank(
             right_rank, tensor.shape, trim=left_rank_bigger
         )
-        right_seed = np.mod(seed + hash(str(d)), 2**32)
+        right_seed = seed + hash(str(d)) % 2**32
         right_drm = right_drm_type(
             right_rank, transpose=True, shape=tensor.shape, seed=right_seed
         )
@@ -279,7 +277,7 @@ class SketchedTensorTrain(Tensor):
     def to_tt(self) -> TensorTrain:
         return TensorTrain(self.C_cores())
 
-    def to_numpy(self) -> npt.NDArray[np.float64]:
+    def to_numpy(self):
         return self.to_tt().to_numpy()
 
     def __repr__(self) -> str:
@@ -404,8 +402,8 @@ def assemble_sketched_tt(
     """Reconstructs a TT from a sketch, using Psi and Omega matrices."""
     tt_cores = []
     if direction == "auto":
-        left_rank_bigger = np.all(
-            np.array(sketch.left_rank) > np.array(sketch.right_rank)
+        left_rank_bigger = torch.all(
+            torch.tensor(sketch.left_rank) > torch.tensor(sketch.right_rank)
         )
         direction = "left" if left_rank_bigger else "right"
 

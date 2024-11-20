@@ -1,11 +1,13 @@
-import numpy as np
 import tensorly as tl
 from tensorly.decomposition import tucker
 from .sketch import Sketch 
+import torch
+
+tl.set_backend("pytorch")
 
 class SketchTwoPassRecover(object):
     def __init__(self, X, arm_sketches, ranks):
-        tl.set_backend('numpy')
+        tl.set_backend('pytorch')
         self.arms = []
         self.core_tensor = None
         self.X = X
@@ -21,7 +23,7 @@ class SketchTwoPassRecover(object):
         # get orthogonal basis for each arm
         Qs = []
         for sketch in self.arm_sketches:
-            Q, _ = np.linalg.qr(sketch)
+            Q, _ = torch.qr(sketch)
             Qs.append(Q)
 
         #get the core_(smaller) to implement tucker
@@ -35,14 +37,14 @@ class SketchTwoPassRecover(object):
 
         #arm[n] = Q.T*factors[n]
         for n in range(len(factors)):
-            self.arms.append(np.dot(Qs[n], factors[n]))
+            self.arms.append(Qs[n].mm(factors[n]))
         X_hat = tl.tucker_to_tensor((self.core_tensor, self.arms))
         return X_hat, self.arms, self.core_tensor 
 
 class SketchOnePassRecover(object):
 
     def __init__(self, arm_sketches, core_sketch, Tinfo_bucket, Rinfo_bucket,phis = []):
-        tl.set_backend('numpy')
+        tl.set_backend('pytorch')
         self.arms = []
         self.core_tensor = None
         self.arm_sketches = arm_sketches
@@ -75,17 +77,17 @@ class SketchOnePassRecover(object):
             phis = self.phis 
         Qs = []
         for arm_sketch in self.arm_sketches:
-            Q, _ = np.linalg.qr(arm_sketch)
+            Q, _ = torch.qr(arm_sketch)
             Qs.append(Q)
         self.core_tensor = self.core_sketch
         dim = len(self.tensor_shape)
         for mode_n in range(dim):
             self.core_tensor = tl.tenalg.mode_dot(self.core_tensor, \
-                np.linalg.pinv(np.dot(phis[mode_n], Qs[mode_n])), mode=mode_n)
+                torch.linalg.pinv(phis[mode_n].mm(Qs[mode_n])), mode=mode_n)
         core_tensor, factors = tucker(self.core_tensor, rank= self.ranks)
         self.core_tensor = core_tensor
         for n in range(dim):
-            self.arms.append(np.dot(Qs[n], factors[n]))
+            self.arms.append(Qs[n].mm(factors[n]))
         X_hat = tl.tucker_to_tensor((self.core_tensor, self.arms))
         return X_hat, self.arms, self.core_tensor
 
