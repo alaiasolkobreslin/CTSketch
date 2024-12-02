@@ -83,7 +83,7 @@ class MNISTSumDataset(torch.utils.data.Dataset):
     imgs = []
     for i in range(len(batch[0])-2):
       imgs.append(torch.stack([item[i] for item in batch]))
-    sum = torch.stack([torch.tensor(item[-2]).long() for item in batch])
+    sum =torch.stack([torch.tensor(item[-2]).long() for item in batch])
     digits = torch.stack([torch.tensor(item[-1]).long() for item in batch])
     return (tuple(imgs), sum, digits)
 
@@ -151,9 +151,10 @@ class MNISTMultiDigitSum2Dataset(torch.utils.data.Dataset):
     target2 = int(''.join(str(t) for t in target[len(target)//2:]))
     
     target_sum = str(target1 + target2)
-    if len(target_sum) == self.digit:
+    if len(target_sum) <= self.digit:
       # add padding
-      target_sum = '0' + target_sum
+      padding = self.digit - len(target_sum) + 1
+      target_sum = ('0' * padding) + target_sum
     target_sum = torch.tensor([int(s) for s in reversed(target_sum)])
 
     # Each data has two images and the GT is the sum of two digits

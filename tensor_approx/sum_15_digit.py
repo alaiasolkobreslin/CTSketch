@@ -67,6 +67,7 @@ class Trainer():
       
   def program(self, *inputs):
     ps = inputs
+    batch_size = inputs[0].shape[0]
     # digits, iters = 1, self.all_digit
     rerr1, cores1, X_hat1 = self.tensorsketch.approx_theta({'gt': self.full_theta1, 'rank': 2})
     self.t1 = X_hat1
@@ -86,7 +87,7 @@ class Trainer():
       carry.append(carry_output)
     
     final_sums = []
-    previous_carry = torch.cat([torch.ones(16, 1).to(device), torch.zeros(16, 1).to(device)], dim=1)
+    previous_carry = torch.cat([torch.ones(batch_size, 1).to(device), torch.zeros(batch_size, 1).to(device)], dim=1)
     # For each digit, we compute the carry sum
     for i in range(self.digits):
       sum_pred = first_sums[i]
@@ -113,6 +114,8 @@ class Trainer():
     iter = tqdm(self.train_loader, total=len(self.train_loader))
     for (data, target, _) in iter:
       self.optimizer.zero_grad()
+      # length of output_t is 30
+      # each item in output_t has shape 16x10 - 16 is for the batch_size
       output_t = self.network(tuple([data_i.to(device) for data_i in data]))
       rerr, output = self.program(*tuple(output_t))
       output = F.normalize(output, dim=-1)
@@ -131,16 +134,25 @@ class Trainer():
     digit_correct = 0
     digits_pred = []
     digits_gt = []
+    powers_of_10 = torch.arange(0 , self.digits, device=device).unsqueeze(0)
+    powers_of_10 = 10 ** powers_of_10
+    target_powers_of_10 = torch.arange(0, self.digits + 1).unsqueeze(0)
+    target_powers_of_10 = 10** target_powers_of_10
     with torch.no_grad():
       iter = tqdm(self.test_loader, total=len(self.test_loader))
       for (data, target, digits) in iter:
         output_t = self.network(tuple([data_i.to(device) for data_i in data]))
         output = torch.stack(output_t, dim=0).argmax(dim=-1)
-        pred = output.sum(dim=0).to(device)
+        # split output into two tensors
+        output1 = torch.sum(output[:self.digits].T * powers_of_10, dim=1)
+        output2 = torch.sum(output[self.digits:].T * powers_of_10, dim=1)
+        final_pred = output1 + output2
+        final_target = torch.sum(target * target_powers_of_10, dim=1)
         digits_pred.extend(output.t().flatten().cpu())
         digits_gt.extend(digits.flatten().cpu())
         target = target.to(device)
-        correct += (pred == target).sum()
+        correct += (final_pred.to('cpu') == final_target).sum()
+        
         digit_correct += (output.t().flatten() == digits.flatten().to(device)).sum()
         perc = 100. * correct / num_items
         perc2 = 100. * digit_correct / (num_items * self.digits * 2)
