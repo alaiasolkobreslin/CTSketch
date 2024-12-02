@@ -24,15 +24,6 @@ def full_thetas(digit, samples):
     theta_i_carry = torch.arange(0, 19) + 1
     full_theta2 = torch.stack([theta_i_0, theta_i_carry])
     return full_theta1, full_theta2
-    
-    # thetas.append(full_theta1)
-    # # next, calculate each full theta with the carry element
-    # for i in range(digit - 1):
-    #     max_sum = 9 * (i+2)
-    #     theta_i_0 = torch.arange(0, max_sum+1)
-    #     theta_i_carry = torch.arange(0, max_sum+1) + 1
-    #     thetas.append(torch.stack([theta_i_0, theta_i_carry]))
-    # return thetas
 
 
 class Trainer():
@@ -48,11 +39,13 @@ class Trainer():
     self.tensorsketch = TensorSketch(tensor_method)
     self.save_model = save_model
     self.rerr = [1] * (digits*2)
-    self.t = [None] * (digits*2)
+    self.t1 = None
+    self.t2 = None
     self.full_theta1, self.full_theta2 = full_thetas(digits, 0)
 
-  def sub_program(self, i, n, d, *base_inputs):
-    t = self.t[i].long().to(device)
+  def sub_program(self, n, d, *base_inputs):
+    # t = self.t[i].long().to(device)
+    t = self.t1.long().to(device)
     p = base_inputs[0]
     batch_size = p.shape[0]
     for i in range(1, n):
@@ -66,11 +59,26 @@ class Trainer():
   def program(self, *inputs):
     ps = inputs
     # digits, iters = 1, self.all_digit
-    theta1 = self.tensorsketch.approx_theta({'gt': self.full_theta1, 'rank': 2})
-    theta2 = self.tensorsketch.approx_theta({'gt': self.full_theta2, 'rank': 2})
+    rerr1, cores1, X_hat1 = self.tensorsketch.approx_theta({'gt': self.full_theta1, 'rank': 2})
+    self.t1 = X_hat1
+    rerr2, cores2, X_hat2 = self.tensorsketch.approx_theta({'gt': self.full_theta2, 'rank': 2})
+    self.t2 = X_hat2
+    assert(torch.all(self.t1 == self.full_theta1))
+    assert(torch.all(self.t2 == self.full_theta2))
     
+    ps2 = []
+    # For each digit, we compute the sum2
     for i in range(self.digits):
+      input1, input2 = ps[i], ps[i + self.digits]
+      ps2.append(self.sub_program(2, 19, *(input1, input2)))
+    
+    # For all sums but the first, we compute the carry addition
+    for i in range(1, self.digits):
       pass
+    
+      # Next, use these predictions to predict the carry sum
+      # def sub_program(self, i, n, d, *base_inputs):
+      # ps2.append(self.sub_program(i, n, d, ))
     
     # digits, iters = 1, output
     # if len(self.digits) > 9: ranks = [2, 2, 2, 2, 2, 4, 4, 4, 4, 4]
