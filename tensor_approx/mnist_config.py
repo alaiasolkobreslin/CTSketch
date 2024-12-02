@@ -88,6 +88,82 @@ class MNISTSumDataset(torch.utils.data.Dataset):
     return (tuple(imgs), sum, digits)
 
 
+class MNISTMultiDigitSum2Dataset(torch.utils.data.Dataset):
+  def __init__(
+    self,
+    root: str,
+    digit: int,
+    train: bool = True,
+    transform: Optional[Callable] = None,
+    target_transform: Optional[Callable] = None,
+    download: bool = False,
+  ):
+    self.digit = digit # number of digits for each of the 2 numbers
+    # Contains a MNIST dataset
+    if train: self.length = 60000 # min(5000 * digit, 60000)
+    else: self.length = 10000 # min(500 * digit, 10000)
+    self.mnist_dataset = torch.utils.data.Subset(
+      torchvision.datasets.MNIST(
+        root,
+        train=train,
+        transform=transform,
+        target_transform=target_transform,
+        download=download,
+      ),
+      range(self.length)
+    )
+    mnist = torchvision.datasets.MNIST(
+        root,
+        train=train,
+        transform=transform,
+        target_transform=target_transform,
+        download=download,
+      )
+    total_digits = self.digit * 2
+    if total_digits >= 200:
+      self.mnist_dataset = torch.utils.data.ConcatDataset([mnist, mnist, mnist, mnist, mnist])
+    elif total_digits >= 100:
+      self.mnist_dataset = torch.utils.data.ConcatDataset([mnist, mnist, mnist, mnist])
+    elif total_digits >= 50:
+      self.mnist_dataset = torch.utils.data.ConcatDataset([mnist, mnist, mnist])
+    elif total_digits >= 25:
+      self.mnist_dataset = torch.utils.data.ConcatDataset([mnist, mnist])
+    self.index_map = list(range(len(self.mnist_dataset)))
+    random.shuffle(self.index_map)
+
+    self.sum_dataset = []
+    for i in range(len(self.mnist_dataset)//total_digits):
+      self.sum_dataset.append([])
+      for j in range(total_digits):
+        self.sum_dataset[i].append(self.mnist_dataset[self.index_map[i*total_digits + j]])
+
+  def __len__(self):
+    return len(self.sum_dataset)
+
+  def __getitem__(self, idx):
+    # Get two data points
+    item = self.sum_dataset[idx]
+    data, target = [], []
+    for (d,t) in item:
+      data.append(d)
+      target.append(t)
+    target1 = int(''.join(str(t) for t in target[:len(target)//2]))
+    target2 = int(''.join(str(t) for t in target[len(target)//2:]))
+    
+    target_sum = target1 + target2
+
+    # Each data has two images and the GT is the sum of two digits
+    return (*tuple(data), target_sum, target)
+
+  @staticmethod
+  def collate_fn(batch):
+    imgs = []
+    for i in range(len(batch[0])-2):
+      imgs.append(torch.stack([item[i] for item in batch]))
+    sum = torch.stack([torch.tensor(item[-2]).long() for item in batch])
+    digits = torch.stack([torch.tensor(item[-1]).long() for item in batch])
+    return (tuple(imgs), sum, digits)
+
 def mnist_sum_loader(data_dir, batch_size, digit):
   train_loader = torch.utils.data.DataLoader(
     MNISTSumDataset(
@@ -104,6 +180,35 @@ def mnist_sum_loader(data_dir, batch_size, digit):
 
   test_loader = torch.utils.data.DataLoader(
     MNISTSumDataset(
+      data_dir,
+      digit,
+      train=False,
+      download=True,
+      transform=mnist_img_transform,
+    ),
+    collate_fn=MNISTSumDataset.collate_fn,
+    batch_size=batch_size,
+    shuffle=True
+  )
+
+  return train_loader, test_loader
+
+def mnist_multi_digit_sum2_loader(data_dir, batch_size, digit):
+  train_loader = torch.utils.data.DataLoader(
+    MNISTMultiDigitSum2Dataset(
+      data_dir,
+      digit,
+      train=True,
+      download=True,
+      transform=mnist_img_transform,
+    ),
+    collate_fn=MNISTSumDataset.collate_fn,
+    batch_size=batch_size,
+    shuffle=True
+  )
+
+  test_loader = torch.utils.data.DataLoader(
+    MNISTMultiDigitSum2Dataset(
       data_dir,
       digit,
       train=False,
