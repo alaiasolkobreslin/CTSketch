@@ -12,7 +12,6 @@ import torch.optim as optim
 
 from mnist_config import MNISTSumNet, mnist_multi_digit_sum2_loader
 import sketch_config
-# from sketch_config import full_theta2, full_theta3, full_theta4, sample_theta
 from tensor_sketch import TensorSketch
 
 # add two numbers with number of digits=digits
@@ -20,8 +19,8 @@ def full_thetas(digit, samples):
     # first calculate theta for the two-digit addition
     full_theta1 = sketch_config.full_theta2(digit=digit, elems=10, output_dim=19, samples=samples)
     # then calculate theta for the carry addition
-    theta_i_0 = torch.arange(0, 19)
-    theta_i_carry = torch.arange(0, 19) + 1
+    theta_i_0 = torch.cat((torch.arange(0, 10), torch.arange(0, 9)))
+    theta_i_carry = torch.cat((torch.arange(1, 10), torch.arange(0, 10)))
     full_theta2 = torch.stack([theta_i_0, theta_i_carry])
     return full_theta1, full_theta2
 
@@ -44,7 +43,6 @@ class Trainer():
     self.full_theta1, self.full_theta2 = full_thetas(digits, 0)
 
   def sub_program(self, n, d, *base_inputs):
-    # t = self.t[i].long().to(device)
     t = self.t1.long().to(device)
     p = base_inputs[0]
     batch_size = p.shape[0]
@@ -56,6 +54,17 @@ class Trainer():
     output = torch.zeros(batch_size, d).to(device).scatter_add_(1, t.flatten().repeat(batch_size, 1), p.flatten(1))
     return output
   
+  def sub_program_carry(self, sum_result, carry):
+    t = self.t2.long().to(device)
+    batch_size = sum_result.shape[0]
+    p1 = sum_result.unsqueeze(-1)
+    p2 = carry.unsqueeze(1)
+    i = 1
+    eqn = f'{"".join([chr(j + 97) for j in range(0, i+2)])}, a{"".join([chr(i + 97) for i in range(i+1, i+3)])} -> {"".join([chr(j + 97) for j in range(0, i+1)])}{chr(i+97+2)}'
+    p = torch.einsum(eqn, p1, p2)
+    output = torch.zeros(batch_size, 10).to(device).scatter_add_(1, t.flatten().repeat(batch_size, 1), p.flatten(1))
+    return output
+      
   def program(self, *inputs):
     ps = inputs
     # digits, iters = 1, self.all_digit
@@ -66,42 +75,35 @@ class Trainer():
     assert(torch.all(self.t1 == self.full_theta1))
     assert(torch.all(self.t2 == self.full_theta2))
     
-    ps2 = []
+    first_sums = []
+    carry = []
     # For each digit, we compute the sum2
     for i in range(self.digits):
       input1, input2 = ps[i], ps[i + self.digits]
-      ps2.append(self.sub_program(2, 19, *(input1, input2)))
+      sum_output = self.sub_program(2, 19, *(input1, input2))
+      first_sums.append(sum_output)
+      carry_output = torch.stack([sum_output[:, :10].sum(dim=1), sum_output[:, 10:].sum(dim=1)], dim=1)
+      carry.append(carry_output)
     
-    # For all sums but the first, we compute the carry addition
-    for i in range(1, self.digits):
-      pass
-    
-      # Next, use these predictions to predict the carry sum
-      # def sub_program(self, i, n, d, *base_inputs):
-      # ps2.append(self.sub_program(i, n, d, ))
-    
-    # digits, iters = 1, output
-    # if len(self.digits) > 9: ranks = [2, 2, 2, 2, 2, 4, 4, 4, 4, 4]
-    # else: ranks = [2, 2, 2, 2, 2, 3, 3, 3, 4]
-    # for i, n_i in enumerate(self.digits):
-    #   if self.t[i] is None:
-    #     digits *= n_i
-    #     rerr, cores, X_hat = self.tensorsketch.approx_theta({'gt': self.gt[i], 'digit': digits, 'output': output, 'rank': ranks[i]})
-    #     self.t[i] = X_hat
-    #     assert(torch.all(self.t[i] == self.gt[i]))
-    #     self.rerr[i] = rerr
-    #   ps2 = []
-    #   iters = iters // n_i
-    #   for j in range(iters):
-    #     ps2.append(self.sub_program(i, n_i, output, *tuple(ps[j*n_i : (j+1)*n_i])))
-    #   ps = tuple(ps2)
-    # output = ps[0]
-    # rerr = sum(self.rerr)
-    # return rerr, output
+    final_sums = []
+    previous_carry = torch.cat([torch.ones(16, 1).to(device), torch.zeros(16, 1).to(device)], dim=1)
+    # For each digit, we compute the carry sum
+    for i in range(self.digits):
+      sum_pred = first_sums[i]
+      final_sum = self.sub_program_carry(sum_pred, previous_carry)
+      final_sums.append(final_sum)
+      previous_carry = carry[i]
+    # append 1 if the last sum gets the carry
+    final_sums.append(F.pad(previous_carry, (0, 8)))
+      
+    output = torch.stack(final_sums).permute(1, 0, 2)
+    rerr = rerr1 + rerr2
+    return rerr, output
   
   def loss(self, output, ground_truth):
-    dim = output.shape[1]
-    gt = torch.stack([torch.tensor([1.0 if i == t else 0.0 for i in range(dim)]) for t in ground_truth]).to(device)
+    # output_len = output.shape[1]
+    dim = output.shape[2]
+    gt = torch.stack([torch.stack([torch.tensor([1.0 if i == e else 0.0 for i in range(dim)]) for e in t]) for t in ground_truth]).to(device)
     return F.cross_entropy(output, gt)
   
   def train_epoch(self, epoch):

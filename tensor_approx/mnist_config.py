@@ -150,7 +150,11 @@ class MNISTMultiDigitSum2Dataset(torch.utils.data.Dataset):
     target1 = int(''.join(str(t) for t in target[:len(target)//2]))
     target2 = int(''.join(str(t) for t in target[len(target)//2:]))
     
-    target_sum = target1 + target2
+    target_sum = str(target1 + target2)
+    if len(target_sum) == self.digit:
+      # add padding
+      target_sum = '0' + target_sum
+    target_sum = torch.tensor([int(s) for s in reversed(target_sum)])
 
     # Each data has two images and the GT is the sum of two digits
     return (*tuple(data), target_sum, target)
