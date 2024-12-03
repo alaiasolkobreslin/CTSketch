@@ -18,10 +18,11 @@ from tensor_sketch import TensorSketch
 def full_thetas(digit, samples):
     # first calculate theta for the two-digit addition
     full_theta1 = sketch_config.full_theta2(digit=digit, elems=10, output_dim=19, samples=samples)
-    # then calculate theta for the carry addition
-    theta_i_0 = torch.cat((torch.arange(0, 10), torch.arange(0, 9)))
-    theta_i_carry = torch.cat((torch.arange(1, 10), torch.arange(0, 10)))
-    full_theta2 = torch.stack([theta_i_0, theta_i_carry]).T
+    # then calculate theta for the carry addition        
+    theta_i_0 = torch.arange(0, 19).unsqueeze(1).repeat(1, 10)
+    theta_i_carry = torch.arange(1, 20).unsqueeze(1).repeat(1, 10)
+    full_theta2 = torch.cat((theta_i_0, theta_i_carry), dim=1)
+        
     return full_theta1, full_theta2
 
 
@@ -62,40 +63,39 @@ class Trainer():
     i = 1
     eqn = f'{"".join([chr(j + 97) for j in range(0, i+2)])}, a{"".join([chr(i + 97) for i in range(i+1, i+3)])} -> {"".join([chr(j + 97) for j in range(0, i+1)])}{chr(i+97+2)}'
     p = torch.einsum(eqn, p1, p2)
-    output = torch.zeros(batch_size, 10).to(device).scatter_add_(1, t.flatten().repeat(batch_size, 1), p.flatten(1))
+    output = torch.zeros(batch_size, 20).to(device).scatter_add_(1, t.flatten().repeat(batch_size, 1), p.flatten(1))
     return output
       
   def program(self, *inputs):
     ps = inputs
     batch_size = inputs[0].shape[0]
-    # digits, iters = 1, self.all_digit
     rerr1, cores1, X_hat1 = self.tensorsketch.approx_theta({'gt': self.full_theta1, 'rank': 2})
     self.t1 = X_hat1
     rerr2, cores2, X_hat2 = self.tensorsketch.approx_theta({'gt': self.full_theta2, 'rank': 2})
     self.t2 = X_hat2
     assert(torch.all(self.t1 == self.full_theta1))
     assert(torch.all(self.t2 == self.full_theta2))
+    mapping = torch.tensor([i % 10 for i in range(20)]).to(device)
     
     first_sums = []
-    carry = []
     # For each digit, we compute the sum2
     for i in range(self.digits):
       input1, input2 = ps[i], ps[i + self.digits]
       sum_output = self.sub_program(2, 19, *(input1, input2))
       first_sums.append(sum_output)
-      carry_output = torch.stack([sum_output[:, :10].sum(dim=1), sum_output[:, 10:].sum(dim=1)], dim=1)
-      carry.append(carry_output)
     
     final_sums = []
-    previous_carry = torch.cat([torch.ones(batch_size, 1).to(device), torch.zeros(batch_size, 1).to(device)], dim=1)
+    previous_sum = torch.cat([torch.ones(batch_size, 1).to(device), torch.zeros(batch_size, 19).to(device)], dim=1)
     # For each digit, we compute the carry sum
     for i in range(self.digits):
       sum_pred = first_sums[i]
-      final_sum = self.sub_program_carry(sum_pred, previous_carry)
-      final_sums.append(final_sum)
-      previous_carry = carry[i]
+      final_sum = self.sub_program_carry(sum_pred, previous_sum)
+      grouped_final_sum = torch.zeros(batch_size, 10).to(device).index_add(1, mapping, final_sum)
+      final_sums.append(grouped_final_sum)
+      previous_sum = final_sum
     # append 1 if the last sum gets the carry
-    final_sums.append(F.pad(previous_carry, (0, 8)))
+    tens_mapping = torch.tensor([i // 10 for i in range(20)]).to(device)
+    final_sums.append(torch.zeros(batch_size, 10).to(device).index_add(1, tens_mapping, previous_sum))
       
     output = torch.stack(final_sums).permute(1, 0, 2) # most significant digit at end, least significant at beginning
     rerr = rerr1 + rerr2
