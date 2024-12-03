@@ -21,7 +21,7 @@ def full_thetas(digit, samples):
     # then calculate theta for the carry addition
     theta_i_0 = torch.cat((torch.arange(0, 10), torch.arange(0, 9)))
     theta_i_carry = torch.cat((torch.arange(1, 10), torch.arange(0, 10)))
-    full_theta2 = torch.stack([theta_i_0, theta_i_carry])
+    full_theta2 = torch.stack([theta_i_0, theta_i_carry]).T
     return full_theta1, full_theta2
 
 
@@ -97,7 +97,7 @@ class Trainer():
     # append 1 if the last sum gets the carry
     final_sums.append(F.pad(previous_carry, (0, 8)))
       
-    output = torch.stack(final_sums).permute(1, 0, 2)
+    output = torch.stack(final_sums).permute(1, 0, 2) # most significant digit at end, least significant at beginning
     rerr = rerr1 + rerr2
     return rerr, output
   
@@ -122,7 +122,7 @@ class Trainer():
       loss = self.loss(output, target.to(device))
       loss.backward()
       self.optimizer.step()
-      total_correct += (output.argmax(dim=-1)==target.to(device)).float().sum()
+      total_correct += torch.all(output.argmax(dim=-1) == target.to(device), dim=1).float().sum()
       num_items += output.shape[0]
       correct_perc = 100. * total_correct / num_items
       iter.set_description(f"[Train {epoch}] Err:{rerr:.4f} Loss: {loss.item():.4f} Accuracy: {correct_perc:.4f}%")
@@ -176,7 +176,7 @@ if __name__ == "__main__":
   # Argument parser
   parser = ArgumentParser("mnist_sum")
   parser.add_argument("--n-epochs", type=int, default=200)
-  parser.add_argument("--batch-size", type=int, default=16)
+  parser.add_argument("--batch-size", type=int, default=64)
   parser.add_argument("--learning-rate", type=float, default=1e-3)
   parser.add_argument("--method", type=str, default='tt')
   parser.add_argument("--seed", type=int, default=1234)
@@ -191,7 +191,7 @@ if __name__ == "__main__":
   learning_rate = args.learning_rate
   digit = args.digits
   method = args.method
-  digit = 15
+  digit = 2
 
   torch.manual_seed(args.seed)
   random.seed(args.seed)
