@@ -18,7 +18,7 @@ from tensor_sketch import TensorSketch
 def full_thetas(digit, samples):
     # first calculate theta for the two-digit addition
     full_theta1 = sketch_config.full_theta2(digit=digit, elems=10, output_dim=19, samples=samples)
-    # then calculate theta for the carry addition        
+    # then calculate theta for the carry addition
     theta_i_0 = torch.arange(0, 19).unsqueeze(1).repeat(1, 10)
     theta_i_carry = torch.arange(1, 20).unsqueeze(1).repeat(1, 10)
     full_theta2 = torch.cat((theta_i_0, theta_i_carry), dim=1)
@@ -45,6 +45,7 @@ class Trainer():
 
   def sub_program(self, n, d, *base_inputs):
     t = self.t1.long().to(device)
+    # clamp t here
     p = base_inputs[0]
     batch_size = p.shape[0]
     for i in range(1, n):
@@ -70,17 +71,18 @@ class Trainer():
     ps = inputs
     batch_size = inputs[0].shape[0]
     rerr1, cores1, X_hat1 = self.tensorsketch.approx_theta({'gt': self.full_theta1, 'rank': 2})
-    self.t1 = X_hat1
+    self.t1 = torch.clamp(X_hat1, min=0)
     rerr2, cores2, X_hat2 = self.tensorsketch.approx_theta({'gt': self.full_theta2, 'rank': 2})
-    self.t2 = X_hat2
-    assert(torch.all(self.t1 == self.full_theta1))
+    self.t2 = torch.clamp(X_hat2, min=0)
+    assert(torch.all(self.t1 == self.full_theta1)) # This assertion sometimes fails - 0 value to -1
     assert(torch.all(self.t2 == self.full_theta2))
     mapping = torch.tensor([i % 10 for i in range(20)]).to(device)
     
     first_sums = []
     # For each digit, we compute the sum2
     for i in range(self.digits):
-      input1, input2 = ps[i], ps[i + self.digits]
+      index = self.digits - 1 - i
+      input1, input2 = ps[index], ps[index + self.digits]
       sum_output = self.sub_program(2, 19, *(input1, input2))
       first_sums.append(sum_output)
     
@@ -104,10 +106,10 @@ class Trainer():
   def loss(self, output, ground_truth):
     # output_len = output.shape[1]
     dim = output.shape[2]
-    gt = torch.stack([torch.stack([torch.tensor([1.0 if i == e else 0.0 for i in range(dim)]) for e in t]) for t in ground_truth]).to(device)
-    return F.cross_entropy(output, gt)
+    # gt = torch.stack([torch.stack([torch.tensor([1.0 if i == e else 0.0 for i in range(dim)]) for e in t]) for t in ground_truth]).to(device)
+    return F.nll_loss(torch.flatten((output + 1e-8).log(), start_dim=0, end_dim=1), torch.flatten(ground_truth))
   
-  def train_epoch(self, epoch):
+  def train_epoch(self, epoch): # use negative log-likelihood loss
     self.network.train()
     num_items = 0
     total_correct = 0
@@ -118,7 +120,8 @@ class Trainer():
       # each item in output_t has shape 16x10 - 16 is for the batch_size
       output_t = self.network(tuple([data_i.to(device) for data_i in data]))
       rerr, output = self.program(*tuple(output_t))
-      output = F.normalize(output, dim=-1)
+
+      # output = F.normalize(output, dim=-1) # trying without normalization
       loss = self.loss(output, target.to(device))
       loss.backward()
       self.optimizer.step()
@@ -158,8 +161,8 @@ class Trainer():
         perc2 = 100. * digit_correct / (num_items * self.digits * 2)
         iter.set_description(f"[Test Epoch {epoch}] Accuracy: {correct}/{num_items} ({perc:.2f}%) Digit Accuracy ({perc2:.2f}%)")
 
-      # cf_matrix = confusion_matrix(digits_gt, digits_pred)
-      # print(cf_matrix)
+      cf_matrix = confusion_matrix(digits_gt, digits_pred)
+      print(cf_matrix)
     
     if self.save_model:
       torch.save(self.network.state_dict(), self.model_dir+f"/best.pth")
