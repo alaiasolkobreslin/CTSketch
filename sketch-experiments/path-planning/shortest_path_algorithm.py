@@ -6,6 +6,10 @@ from torch.nn.functional import conv1d
 grid_size = 12
 max_steps = 24
 num_moves = 8
+num_bins = 1000
+cost_values = torch.tensor([0.8, 1.2, 5.3, 7.7, 9.2])
+max_cost = torch.max(cost_values) * (12 * 12 - 1)
+cost_bins = torch.linspace(0, max_cost, steps=num_bins)
 
 # Define move offsets
 directions = {
