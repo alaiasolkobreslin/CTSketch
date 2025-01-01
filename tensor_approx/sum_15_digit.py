@@ -137,7 +137,7 @@ class Trainer():
     digit_correct = 0
     digits_pred = []
     digits_gt = []
-    powers_of_10 = torch.arange(0 , self.digits, device=device).unsqueeze(0)
+    powers_of_10 = torch.arange(self.digits - 1, -1 , -1, device=device).unsqueeze(0)
     powers_of_10 = 10 ** powers_of_10
     target_powers_of_10 = torch.arange(0, self.digits + 1).unsqueeze(0)
     target_powers_of_10 = 10** target_powers_of_10
@@ -194,7 +194,7 @@ if __name__ == "__main__":
   learning_rate = args.learning_rate
   digit = args.digits
   method = args.method
-  digit = 2
+  digit = 15
 
   torch.manual_seed(args.seed)
   random.seed(args.seed)
