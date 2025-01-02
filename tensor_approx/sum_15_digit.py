@@ -35,7 +35,6 @@ class Trainer():
     self.test_loader = test_loader
     self.best_loss = 10000000000
     self.digits = digits
-    # self.dims = [10] + [dim_i * 9 + 1 for dim_i in dims]
     self.tensorsketch = TensorSketch(tensor_method)
     self.save_model = save_model
     self.rerr = [1] * (digits*2)
@@ -45,7 +44,6 @@ class Trainer():
 
   def sub_program(self, n, d, *base_inputs):
     t = self.t1.long().to(device)
-    # clamp t here
     p = base_inputs[0]
     batch_size = p.shape[0]
     for i in range(1, n):
@@ -104,28 +102,29 @@ class Trainer():
     return rerr, output
   
   def loss(self, output, ground_truth):
-    # output_len = output.shape[1]
     dim = output.shape[2]
-    # gt = torch.stack([torch.stack([torch.tensor([1.0 if i == e else 0.0 for i in range(dim)]) for e in t]) for t in ground_truth]).to(device)
     return F.nll_loss(torch.flatten((output + 1e-8).log(), start_dim=0, end_dim=1), torch.flatten(ground_truth))
   
-  def train_epoch(self, epoch): # use negative log-likelihood loss
+  def train_epoch(self, epoch):
     self.network.train()
     num_items = 0
     total_correct = 0
+    pred_powers_of_10 = torch.arange(self.digits + 1, device=device).unsqueeze(0)
+    target_powers_of_10 = torch.arange(self.digits + 1).unsqueeze(0)
     iter = tqdm(self.train_loader, total=len(self.train_loader))
     for (data, target, _) in iter:
       self.optimizer.zero_grad()
-      # length of output_t is 30
-      # each item in output_t has shape 16x10 - 16 is for the batch_size
       output_t = self.network(tuple([data_i.to(device) for data_i in data]))
       rerr, output = self.program(*tuple(output_t))
 
-      # output = F.normalize(output, dim=-1) # trying without normalization
       loss = self.loss(output, target.to(device))
       loss.backward()
       self.optimizer.step()
-      total_correct += torch.all(output.argmax(dim=-1) == target.to(device), dim=1).float().sum()
+      
+      final_pred = torch.sum(output.argmax(dim=-1) * (10 ** pred_powers_of_10), dim=1)
+      final_target = torch.sum(target * (10 ** target_powers_of_10), dim=1)
+      total_correct += (final_pred.to('cpu') == final_target).sum()
+      
       num_items += output.shape[0]
       correct_perc = 100. * total_correct / num_items
       iter.set_description(f"[Train {epoch}] Err:{rerr:.4f} Loss: {loss.item():.4f} Accuracy: {correct_perc:.4f}%")
@@ -137,20 +136,18 @@ class Trainer():
     digit_correct = 0
     digits_pred = []
     digits_gt = []
-    powers_of_10 = torch.arange(self.digits - 1, -1 , -1, device=device).unsqueeze(0)
-    powers_of_10 = 10 ** powers_of_10
+    pred_powers_of_10 = torch.arange(self.digits - 1, -1 , -1, device=device).unsqueeze(0)
     target_powers_of_10 = torch.arange(0, self.digits + 1).unsqueeze(0)
-    target_powers_of_10 = 10** target_powers_of_10
     with torch.no_grad():
       iter = tqdm(self.test_loader, total=len(self.test_loader))
       for (data, target, digits) in iter:
         output_t = self.network(tuple([data_i.to(device) for data_i in data]))
         output = torch.stack(output_t, dim=0).argmax(dim=-1)
         # split output into two tensors
-        output1 = torch.sum(output[:self.digits].T * powers_of_10, dim=1)
-        output2 = torch.sum(output[self.digits:].T * powers_of_10, dim=1)
+        output1 = torch.sum(output[:self.digits].T * (10 ** pred_powers_of_10), dim=1)
+        output2 = torch.sum(output[self.digits:].T * (10 ** pred_powers_of_10), dim=1)
         final_pred = output1 + output2
-        final_target = torch.sum(target * target_powers_of_10, dim=1)
+        final_target = torch.sum(target * (10 ** target_powers_of_10), dim=1)
         digits_pred.extend(output.t().flatten().cpu())
         digits_gt.extend(digits.flatten().cpu())
         target = target.to(device)
