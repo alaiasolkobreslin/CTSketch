@@ -26,7 +26,7 @@ def pretrain(digit, samples):
     full_theta2 = torch.cat((theta_i_0, theta_i_carry), dim=1)
     t1 = time()
     wandb.log({"pretrain": t1 - t0})
-    return full_theta1, full_theta2
+    return torch.nn.functional.one_hot(full_theta1, num_classes=19), torch.nn.functional.one_hot(full_theta2, num_classes=20)
 
 
 class Trainer():
@@ -41,19 +41,28 @@ class Trainer():
     self.tensorsketch = TensorSketch(tensor_method)
     self.save_model = save_model
     self.rerr = [1] * (digits*2)
-    self.t1 = None
-    self.t2 = None
+    # self.t1 = None
+    # self.t2 = None
     self.full_theta1, self.full_theta2 = pretrain(digits, 0)
 
   def sub_program(self, n, d, *base_inputs):
-    t = self.t1.long().to(device)
+    t1 = self.cores1[0].to(device).squeeze(0)
+    t2 = self.cores1[1].to(device).squeeze(-1)
+    p1 = base_inputs[0]
+    p2 = base_inputs[1]
+    # t = self.t1.long().to(device)
     p = base_inputs[0]
     batch_size = p.shape[0]
-    for i in range(1, n):
-      p1 = p.unsqueeze(-1)
-      p2 = base_inputs[i].unsqueeze(1)
-      eqn = f'{"".join([chr(j + 97) for j in range(0, i+2)])}, a{"".join([chr(i + 97) for i in range(i+1, i+3)])} -> {"".join([chr(j + 97) for j in range(0, i+1)])}{chr(i+97+2)}'
-      p = torch.einsum(eqn, p1, p2)
+    # for i in range(1, n):
+    #   p1 = p.unsqueeze(-1)
+    #   p2 = base_inputs[i].unsqueeze(1)
+    #   eqn = f'{"".join([chr(j + 97) for j in range(0, i+2)])}, a{"".join([chr(i + 97) for i in range(i+1, i+3)])} -> {"".join([chr(j + 97) for j in range(0, i+1)])}{chr(i+97+2)}'
+    #   p = torch.einsum(eqn, p1, p2)
+    
+    # r1 = torch.sum(base_inputs[0] @ t1, dim=1)
+    # r2 = torch.sum(base_inputs[1] @ t2.T, dim=1)
+    u = torch.einsum('ij,bj->bi', t1.T, p1)
+    v = torch.einsum('ij,bj->bi', t2, p2)
     output = torch.zeros(batch_size, d).to(device).scatter_add_(1, t.flatten().repeat(batch_size, 1), p.flatten(1))
     return output
   
@@ -72,11 +81,13 @@ class Trainer():
     ps = inputs
     batch_size = inputs[0].shape[0]
     rerr1, cores1, X_hat1 = self.tensorsketch.approx_theta({'gt': self.full_theta1, 'rank': 2})
-    self.t1 = torch.clamp(X_hat1, min=0)
+    self.cores1 = cores1
+    # self.t1 = torch.clamp(X_hat1, min=0)
     rerr2, cores2, X_hat2 = self.tensorsketch.approx_theta({'gt': self.full_theta2, 'rank': 2})
-    self.t2 = torch.clamp(X_hat2, min=0)
-    assert(torch.all(self.t1 == self.full_theta1)) # This assertion sometimes fails - 0 value to -1
-    assert(torch.all(self.t2 == self.full_theta2))
+    self.cores2 = cores2
+    # self.t2 = torch.clamp(X_hat2, min=0)
+    # assert(torch.all(self.t1 == self.full_theta1)) # This assertion sometimes fails - 0 value to -1
+    # assert(torch.all(self.t2 == self.full_theta2))
     mapping = torch.tensor([i % 10 for i in range(20)]).to(device)
     
     first_sums = []

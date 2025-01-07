@@ -70,11 +70,11 @@ class Trainer():
     total_correct = 0
     iter = tqdm(self.train_loader, total=len(self.train_loader))
     rerr = 1.0
-    for (data, target) in iter:
+    for (data, target, _) in iter:
       self.optimizer.zero_grad()
       output_t = self.network(tuple([data_i.to(device) for data_i in data]))
       self.target_t(*tuple(output_t))
-      rerr, X_hat = self.tensorsketch.approx_theta({'gt': self.gt, 'digit': self.digit})
+      rerr, cores, X_hat = self.tensorsketch.approx_theta({'gt': self.gt, 'digit': self.digit})
       self.t = X_hat
       output = self.program(*tuple(output_t))
       output = F.normalize(output, dim=-1)
