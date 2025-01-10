@@ -100,34 +100,16 @@ class MNISTMultiDigitSum2Dataset(torch.utils.data.Dataset):
   ):
     self.digit = digit # number of digits for each of the 2 numbers
     # Contains a MNIST dataset
-    if train: self.length = 60000 # min(5000 * digit, 60000)
-    else: self.length = 10000 # min(500 * digit, 10000)
-    self.mnist_dataset = torch.utils.data.Subset(
-      torchvision.datasets.MNIST(
+    if train: self.length = 60000
+    else: self.length = 10000
+    self.mnist_dataset = torchvision.datasets.MNIST(
         root,
         train=train,
         transform=transform,
         target_transform=target_transform,
         download=download,
-      ),
-      range(self.length)
     )
-    mnist = torchvision.datasets.MNIST(
-        root,
-        train=train,
-        transform=transform,
-        target_transform=target_transform,
-        download=download,
-      )
     total_digits = self.digit * 2
-    if total_digits >= 200:
-      self.mnist_dataset = torch.utils.data.ConcatDataset([mnist, mnist, mnist, mnist, mnist])
-    elif total_digits >= 100:
-      self.mnist_dataset = torch.utils.data.ConcatDataset([mnist, mnist, mnist, mnist])
-    elif total_digits >= 50:
-      self.mnist_dataset = torch.utils.data.ConcatDataset([mnist, mnist, mnist])
-    elif total_digits >= 25:
-      self.mnist_dataset = torch.utils.data.ConcatDataset([mnist, mnist])
     self.index_map = list(range(len(self.mnist_dataset)))
     random.shuffle(self.index_map)
 
