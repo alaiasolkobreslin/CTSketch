@@ -10,6 +10,8 @@ import random
 
 from add_config import addition, MNIST_Net
 
+# TODO: fix the sample count hardcoding
+
 def test(x, label, label_digits, model, device):
     label_digits_l = list(map(lambda d: d.to(device), label_digits[0] + label_digits[1]))
     label_digits_l = torch.stack(label_digits_l, dim=-1)
@@ -35,7 +37,7 @@ def indecater_multiplier(batch_size, N, pair, sample_count):
 
 # not decomposed version
 def program(logits, target, N):
-    sample_count = 100
+    sample_count = config['amt_samples']
     d = torch.distributions.Categorical(logits=logits)
     samples = d.sample((sample_count,))
     outer_samples = torch.stack([samples] * 10, dim=0)
@@ -98,7 +100,7 @@ def program_compose(P, target, n):
 
 # the three subprograms could possibly be merged??
 def sub_program_right(logits, label):
-    sample_count = 100
+    sample_count = config['amt_samples']
     d = torch.distributions.Categorical(logits=logits)
     samples = d.sample((sample_count,))
     outer_samples = torch.stack([samples] * 10, dim=0)
@@ -113,7 +115,7 @@ def sub_program_right(logits, label):
     return indecater_expression
 
 def sub_program_4(logits, target):
-    sample_count = 100
+    sample_count = config['amt_samples']
     d = torch.distributions.Categorical(logits=logits)
     samples = d.sample((sample_count,))
     outer_samples = torch.stack([samples] * 10, dim=0)
@@ -132,7 +134,7 @@ def sub_program_4(logits, target):
     return indecater_expression
 
 def sub_program_left(logits, label):
-    sample_count = 100
+    sample_count = config['amt_samples']
     d = torch.distributions.Categorical(logits=logits)
     samples = d.sample((sample_count,))
     outer_samples = torch.stack([samples] * 10, dim=0)
@@ -170,7 +172,7 @@ if __name__ == '__main__':
     
     for digit in [2, 4]:
         for seed in [3177, 5848, 9175, 8725, 1234, 1357, 2468, 548, 6787, 8371]:
-            samples = digit * 5000
+            samples = digit * 2 * 1000
             config['amt_samples'] = samples
             config['N'] = digit
             torch.manual_seed(seed)
@@ -185,7 +187,7 @@ if __name__ == '__main__':
                 print(config)
             else:
                 name = str(seed)
-                wandb.init(
+                run = wandb.init(
                     project=f"icr-{config['op']}-{str(config["N"])}",
                     name=name,
                     config=config,
@@ -286,15 +288,13 @@ if __name__ == '__main__':
                     val_acc += test_result[0]
                     val_digit_acc += test_result[1]
 
-                val_accuracy = val_acc / len(val_loader)
-                val_digit_accuracy = val_digit_acc / len(val_loader)
                 epoch_time = end_epoch_time - start_epoch_time
                 test_time = time.time() - end_epoch_time
 
                 prefix = 'Test' if config['test'] else 'Val'
                 
-                total_acc = val_accuracy / num_items
-                digit_acc = val_digit_accuracy / (num_items * config['N'] * 2)
+                total_acc = val_acc / num_items
+                digit_acc = val_digit_acc / (num_items * config['N'] * 2)
 
                 print(f"{prefix} accuracy: {total_acc:.4f}",
                     f"{prefix} Digit: {digit_acc:.4f} Epoch time: {epoch_time} {prefix} time: {test_time}")
@@ -309,4 +309,4 @@ if __name__ == '__main__':
                     "epoch_time": epoch_time,
                 })
         
-        run.finish()
+            run.finish()
