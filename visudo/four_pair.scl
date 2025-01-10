@@ -1,0 +1,26 @@
+
+rel distinct = {(0, 1), (0, 2), (0, 3), (1, 0), (1, 2), (1, 3), (2, 0), (2, 1), (2, 3), (3, 0), (3, 1), (3, 2)}
+
+rel valid(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) = 
+    distinct(a, b), distinct(a, c), distinct(a, d), distinct(a, e), distinct(a, i), distinct(a, m), distinct(a, f),
+    distinct(b, c), distinct(b, d), distinct(b, f), distinct(b, j), distinct(b, n), distinct(b, e),
+    distinct(c, d), distinct(c, g), distinct(c, k), distinct(c, o), distinct(c, h),
+    distinct(d, h), distinct(d, l), distinct(d, p), distinct(d, g),
+    distinct(e, f), distinct(e, g), distinct(e, h), distinct(e, i), distinct(e, m),
+    distinct(f, g), distinct(f, h), distinct(f, j), distinct(f, n),
+    distinct(g, h), distinct(g, k), distinct(g, o),
+    distinct(h, l), distinct(h, p),
+    distinct(i, j), distinct(i, k), distinct(i, l), distinct(i, m), distinct(i, n),
+    distinct(j, k), distinct(j, l), distinct(j, m), distinct(j, n),
+    distinct(k, l), distinct(k, o), distinct(k, p),
+    distinct(l, o), distinct(l, p),
+    distinct(m, n), distinct(m, o), distinct(m, p),
+    distinct(n, o), distinct(n, p),
+    distinct(o, p)
+
+rel visudo(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) = 
+    digit_1(a), digit_2(b), digit_3(c), digit_4(d), 
+    digit_5(e), digit_6(f), digit_7(g), digit_8(h), 
+    digit_9(i), digit_10(j), digit_11(k), digit_12(l), 
+    digit_13(m), digit_14(n), digit_15(o), digit_16(p), 
+    valid(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)  
