@@ -10,7 +10,6 @@ import random
 
 from add_config import addition, MNIST_Net
 
-# TODO: fix the sample count hardcoding
 
 def test(x, label, label_digits, model, device):
     label_digits_l = list(map(lambda d: d.to(device), label_digits[0] + label_digits[1]))
@@ -159,7 +158,7 @@ if __name__ == '__main__':
         "test": True,
         "batch_size": 16,
         "batch_size_test": 16,
-        "amt_samples": 5000,
+        "amt_samples": 10,
         "perception_lr": 1e-3,
         "epochs": 100,
         "log_per_epoch": 10,
@@ -170,10 +169,8 @@ if __name__ == '__main__':
     known, unknown = parser.parse_known_args()
     config_file = known.config
     
-    for digit in [2, 4]:
+    for digit in [1, 2, 4, 15, 30, 60]:
         for seed in [3177, 5848, 9175, 8725, 1234, 1357, 2468, 548, 6787, 8371]:
-            samples = digit * 2 * 1000
-            config['amt_samples'] = samples
             config['N'] = digit
             torch.manual_seed(seed)
             random.seed(seed)
@@ -199,7 +196,7 @@ if __name__ == '__main__':
             device = torch.device('cuda' if use_cuda else 'cpu')
 
             op = addition
-            model = MNIST_Net().to(device)
+            model = MNIST_Net(with_softmax=False).to(device)
             percept_optimizer = torch.optim.Adam(model.parameters(), lr=config["perception_lr"])
 
             if config["test"]:
@@ -239,7 +236,7 @@ if __name__ == '__main__':
                     x = torch.cat([numb1, numb2], dim=1).to(device)
                     label = label.to(device)
                     output = model(x)
-                    loss = program_compose(output, label, config["N"])
+                    loss = program(output, label, config["N"])
                     loss.backward()
                     percept_optimizer.step()
 
