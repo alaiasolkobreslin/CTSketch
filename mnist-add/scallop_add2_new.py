@@ -50,10 +50,10 @@ class ScallopAddNNet(nn.Module):
         logits = self.MNIST_Net(x)
         output = self.addN(digit_1=logits[:, 0], digit_2=logits[:, 1], digit_3=logits[:, 2], digit_4=logits[:, 3])
         batch_size = output.shape[0]
-        xs = torch.arange(self.output_dim)
+        xs = torch.arange(self.output_dim).to(device)
         ts = []
         for i in range(self.N + 1):
-            inds = (torch.floor_divide(xs, 10**i).to(device) % 10).repeat(batch_size, 1)
+            inds = (torch.floor_divide(xs, 10**i) % 10).repeat(batch_size, 1)
             if i == self.N: 
                 ts.append(torch.zeros(batch_size, 2).to(device).scatter_add_(1, inds, output))
             else: 
@@ -82,7 +82,7 @@ class Trainer():
 
         start_epoch_time = time.time()
 
-        for i, batch in enumerate(train_loader):
+        for i, batch in enumerate(train_loader):            
             self.optimizer.zero_grad()
             # label_digits is ONLY EVER to be used during testing!!!
             numb1, numb2, target, label_digits = batch
