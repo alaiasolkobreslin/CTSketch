@@ -20,7 +20,7 @@ def test(x, label, label_digits, model, device):
     n1 = torch.stack([10 ** (N - 1 - i) * output[:, i] for i in range(N)], -1)
     n2 = torch.stack([10 ** (N - 1 - i) * output[:, N + i] for i in range(N)], -1)
     pred = n1.sum(dim=-1) + n2.sum(dim=-1)
-    acc = (pred == label).sum()
+    acc = (pred == label.to(device)).sum()
     digit_acc = (output == label_digits_l).float().mean()
     return acc, digit_acc
 
@@ -53,16 +53,20 @@ class ScallopAddNNet(nn.Module):
         xs = torch.arange(self.output_dim)
         ts = []
         for i in range(self.N + 1):
-            inds = (torch.floor_divide(xs, 10**i) % 10).repeat(batch_size, 1)
+            inds = (torch.floor_divide(xs, 10**i).to(device) % 10).repeat(batch_size, 1)
             if i == self.N: 
-                ts.append(torch.zeros(batch_size, 2).scatter_add_(1, inds, output))
+                ts.append(torch.zeros(batch_size, 2).to(device).scatter_add_(1, inds, output))
             else: 
-                ts.append(torch.zeros(batch_size, 10).scatter_add_(1, inds, output))
+                ts.append(torch.zeros(batch_size, 10).to(device).scatter_add_(1, inds, output))
         return ts
 
 class Trainer():
     def __init__(self, train_loader, test_loader, config):
-        self.network = ScallopAddNNet(config["N"], config["provenance"], config["k"], config["dispatch"]).to(device)
+        self.N = config["N"]
+        self.provenance = config["provenance"]
+        self.k = config["k"]
+        self.dispatch = config["dispatch"]
+        self.network = ScallopAddNNet(self.N, self.provenance, self.k, self.dispatch).to(device)
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=config["perception_lr"])
         self.train_loader = train_loader
         self.test_loader = test_loader
@@ -83,16 +87,16 @@ class Trainer():
             # label_digits is ONLY EVER to be used during testing!!!
             numb1, numb2, target, label_digits = batch
 
-            x = torch.cat([numb1, numb2], dim=1).to(device)
+            x = torch.cat([numb1.to(device), numb2.to(device)], dim=1)
             ts = self.network(x)
             rs = []
-            for i in range(self.N + 1):
-                t_i = torch.floor_divide(target, 10**i) % 10
-                if i == self.N:
+            for j in range(self.N + 1):
+                t_i = torch.floor_divide(target.to(device), 10**j) % 10
+                if j == self.N:
                     l = F.one_hot(t_i, num_classes=2).float()
                 else:
                     l = F.one_hot(t_i, num_classes=10).float()
-                r = F.binary_cross_entropy(ts[i], l)
+                r = F.binary_cross_entropy(ts[j], l)
                 rs.append(r)
             rs = torch.stack(rs, dim=0)
             loss = rs.mean(dim=0)
@@ -101,7 +105,7 @@ class Trainer():
 
             cum_loss_percept += loss.item()
             
-            test_result = test(x, target, label_digits, model, device)
+            test_result = test(x, target, label_digits, self.network.MNIST_Net, device)
             train_acc += test_result[0]
             train_digit_acc += test_result[1]
             
@@ -129,7 +133,7 @@ class Trainer():
             numb1, numb2, label, label_digits = batch
             x = torch.cat([numb1, numb2], dim=1)
 
-            test_result = test(x.to(device), label.to(device), label_digits, model, device)
+            test_result = test(x.to(device), label.to(device), label_digits, self.network.MNIST_Net, device)
             val_acc += test_result[0]
             val_digit_acc += test_result[1]
     
