@@ -1,0 +1,28 @@
+project: dsl_sum64
+name: "1234"
+program: "deepsoftlog/experiments/mnist_sum/programs/sum64_embeddings.pl"
+semantics: sdd2
+
+# Run settings
+nb_workers: 1
+device: cuda
+seed: 1234
+verbose: true
+digits: 64
+data_subset: null
+sum_symb: false
+max_proofs: null
+
+# Optimization settings
+optimizer: AdamW
+functor_learning_rate: 0.0001
+embedding_learning_rate: 0
+batch_size: 4
+nb_epochs: 100
+weight_decay: 1.0e-05
+grad_clip: null
+
+# embeddings
+embedding_dimensions: 577
+embedding_initialization: sphere
+embedding_metric: angle
