@@ -16,15 +16,15 @@ The code for running experiment for task {task_name} is at `{method_name}_{task_
 
 ## Datasets
 
-- Leaf Identification: download the [leaf dataset](https://drive.google.com/file/d/1A9399fqTk3cR8eaRWCByCuh0_85D1JQc/view?usp=share_link) and place it under data/leaf_11.
+- Leaf Identification: download the [leaf dataset](https://drive.google.com/file/d/1IQIZfvx-OFrR7p4nI_H7gbtzTZkEmXFo/view?usp=share_link) and place it under data/leaf_11.
 
-- Scene Recognition: download the [scene dataset](https://drive.google.com/file/d/1ICXMkwP4gWzcC4My_UWALpXaAoRIiSTt/view?usp=share_link) and place it under data/scene.
+- Scene Recognition: download the [scene dataset](https://drive.google.com/file/d/1OqGhHTPycpi16jqGW4yctH1hQ9-Wm-V5/view?usp=share_link) and place it under data/scene.
 
-- Hand-written Formula: download the [hwf dataset](https://drive.google.com/file/d/1VW--BO_CSxzB9C7-ZpE3_hrZbXDqlMU-/view?usp=share_link) and place it under data/hwf.
+- Hand-written Formula: download the [hwf dataset](https://drive.google.com/file/d/1zlzWkZmn8zQHqB_PNKZORPW0YBuU5GOp/view?usp=share_link) and place it under data/hwf.
 
 - Sudoku Solving: download the [SatNet dataset](https://powei.tw/sudoku.zip), unzip the data, and place features.pt, features_img.pt, labels.pt, and perm.pt under data/original_data.
 
-- Visual Sudoku: download the [4x4](https://drive.google.com/file/d/1E-_37z4eSGdsUqlh3BZW2m6r8NLkvbNi/view?usp=share_link) or [9x9](https://drive.google.com/file/d/1l-GjaWUFZxFBKKwbSndWQNBMRRmqpS3c/view?usp=share_link) Sudoku boards, unzip the data and place the folder under data/ViSudo-PC.
+- Visual Sudoku: download the [4x4](https://drive.google.com/file/d/1trNLPn3Yei2u4ak9eHjpN07_Obxelnll/view?usp=share_link) or [9x9](https://drive.google.com/file/d/129rL0H_3RCB_f39YU8BM5vGt0Gh5_G4F/view?usp=share_link) Sudoku boards, unzip the data and place the folder under data/ViSudo-PC.
 
 ## Experiments
 
