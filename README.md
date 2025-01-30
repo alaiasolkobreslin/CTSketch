@@ -1,49 +1,26 @@
-# DeepSoftLog
+# CTSketch
 
-[[paper](https://openreview.net/pdf?id=s86M8naPSv)] [[video](https://youtu.be/3yQbcer-suA)] [[slides](https://neurips.cc/media/neurips-2023/Slides/70284.pdf)]
-
-DeepSoftLog is a neuro-symbolic framework which adds embeddings and neural networks to probabilistic logic programming using soft-unification.
+CTSketch is a neurosymbolic framework that uses decomposed symbolic programs and their sketched summaries to perform efficient inference.
 
 
 ## Install
 
-DeepSoftLog was developed for Python 3.10.11. To install run:
-```shell
-conda create --name dsl python=3.10.11
-pip install cython==0.29.36
-python setup.py build_ext --inplace
-pip install -r requirements.txt
-```
+CTSketch is compatible with Python 3.XX.XX. Run the following:
+1. Install the dependencies inside a new virtual environment: `bash setup.sh`
+2. Activate the conda environment: `conda activate CTSketch`
+3. (Optional) Install package for GPT experiments: pip install openai
 
-DeepSoftLog has only been tested on MacOS and Linux. The exact inference requires [PySDD](https://github.com/wannesm/PySDD), which does not support Windows.
+Datasets
+- Leaf Identification: download the [leaf dataset](https://drive.google.com/file/d/1A9399fqTk3cR8eaRWCByCuh0_85D1JQc/view?usp=share_link) and place it under data/leaf_11.
+
+- Scene Recognition: download the [scene dataset](https://drive.google.com/file/d/1ICXMkwP4gWzcC4My_UWALpXaAoRIiSTt/view?usp=share_link) and place it under data/scene.
+
+- Hand-written Formula: download the [hwf dataset](https://drive.google.com/file/d/1VW--BO_CSxzB9C7-ZpE3_hrZbXDqlMU-/view?usp=share_link) and place it under data/hwf.
+
+- Sudoku Solving: download the [SatNet dataset](https://powei.tw/sudoku.zip), unzip the data, and place features.pt, features_img.pt, labels.pt, and perm.pt under data/original_data.
+
+- Visual Sudoku: download the [Visudo dataset](todo), unzip the data
 
 ## Experiments
 
-All experiments can be found in `src/experiments`. The hyperparameters for each experiment can be found in their respective `config.yaml` files. 
-To run an experiment, use the following command:
-```shell
-python run_experiments.py <experiment_name> <config_path>
-```
-For example, to run the MNIST addition experiment:
-```shell
-python run_experiments.py mnist_addition deepsoftlog/experiments/mnist_addition/config.yaml
-```
-
-By default, training metrics and results are logged to wandb.
-
-## Paper
-
-If you use DeepSoftLog in your work, consider citing our paper:
-
-```
-@inproceedings{maene2023softunification,
- author = {Maene, Jaron and De Raedt, Luc},
- booktitle = {Advances in Neural Information Processing Systems},
- editor = {A. Oh and T. Naumann and A. Globerson and K. Saenko and M. Hardt and S. Levine},
- pages = {60804--60820},
- publisher = {Curran Associates, Inc.},
- title = {{S}oft-{U}nification in {D}eep {P}robabilistic {L}ogic},
- volume = {36},
- year = {2023}
-}
-```
+## Acknowledgements
