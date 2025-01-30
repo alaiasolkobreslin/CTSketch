@@ -85,7 +85,7 @@ if __name__ == '__main__':
         print(config)
     else:
         run = wandb.init(
-            project=f"ansei-sum{config['arity']}",
+            project=f"anesi-sum{config['arity']}",
             config=config,
         )
         print(config)
