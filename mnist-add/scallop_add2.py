@@ -13,8 +13,8 @@ from add_config import addition, MNIST_Net
 def test(x, label, label_digits, model, device):
     label_digits_l = list(map(lambda d: d.to(device), label_digits[0] + label_digits[1]))
     label_digits_l = torch.stack(label_digits_l, dim=-1)
-    test_result = model(x)
-    output = test_result.argmax(dim=-1)
+    test_result = model(x) # model is MNIST_Net, x shape is 16x4x28x28
+    output = test_result.argmax(dim=-1) # test_result shape is 16x4x10, output shape is 16x4
     N = len(label_digits[0])
     n1 = torch.stack([10 ** (N - 1 - i) * output[:, i] for i in range(N)], -1)
     n2 = torch.stack([10 ** (N - 1 - i) * output[:, N + i] for i in range(N)], -1)
@@ -50,7 +50,7 @@ def program(logits, target, N, provenance, k, dispatch):
             t = torch.zeros(batch_size, 10).scatter_add_(1, inds, output)
             l = F.one_hot(t_i, num_classes=10).float()
         # bce loss
-        r = F.binary_cross_entropy(t, l)
+        r = F.binary_cross_entropy(torch.clamp(t, min=0., max=1.), l)
         rs.append(r)
     rs = torch.stack(rs, dim=0)
     return rs.mean(dim=0)
@@ -139,17 +139,18 @@ if __name__ == '__main__':
         config = wandb.config
         print(config)
     else:
-        name = "addition_" + str(config["N"])
+        # name = "addition_" + str(config["N"])
         wandb.init(
-            project=f"scallop-{config['op']}",
-            name = name,
+            project=f"scallop-add-{config['N']}",
+            # name = name,
             config=config,
         )
         print(config)
 
     # Check for available GPUs
     use_cuda = config["use_cuda"] and torch.cuda.is_available()
-    device = torch.device('cuda' if use_cuda else 'cpu')
+    # device = torch.device('cuda' if use_cuda else 'cpu')
+    device = 'cpu'
 
     op = addition
     model = MNIST_Net()
@@ -178,10 +179,13 @@ if __name__ == '__main__':
         cum_loss_percept = 0
         train_acc = 0
         train_digit_acc = 0
+        num_items = 0
 
         start_epoch_time = time.time()
 
         for i, batch in enumerate(train_loader):
+            batch_size = batch[0].shape[0]
+            num_items += batch_size
             percept_optimizer.zero_grad()
             # label_digits is ONLY EVER to be used during testing!!!
             numb1, numb2, label, label_digits = batch
@@ -199,16 +203,19 @@ if __name__ == '__main__':
             train_acc += test_result[0]
             train_digit_acc += test_result[1]
 
+            total_acc = train_acc / num_items
+            digit_acc = train_digit_acc / (num_items * config['N'] * 2)
+
             if (i + 1) % log_iterations == 0:
                 print(f"actor: {cum_loss_percept / log_iterations:.4f} "
-                      f"train_acc: {train_acc / log_iterations:.4f}",
-                      f"train_digit_acc: {train_digit_acc / log_iterations:.4f}")
+                      f"train_acc: {total_acc:.4f}",
+                      f"train_digit_acc: {digit_acc:.4f}")
 
                 wandb.log({
                     # "epoch": epoch,
                     "percept_loss": cum_loss_percept / log_iterations,
-                    "train_accuracy": train_acc / log_iterations,
-                    "train_digit_accuracy": train_digit_acc / log_iterations,
+                    "train_accuracy": total_acc,
+                    "train_digit_accuracy": digit_acc,
                 })
                 cum_loss_percept = 0
                 train_acc = 0
@@ -224,7 +231,10 @@ if __name__ == '__main__':
         val_acc_prior = 0.
         val_explain_acc = 0.
         val_digit_acc = 0.
+        num_items = 0
         for i, batch in enumerate(val_loader):
+            batch_size = batch[0].shape[0]
+            num_items += batch_size
             numb1, numb2, label, label_digits = batch
             x = torch.cat([numb1, numb2], dim=1)
 
@@ -238,16 +248,19 @@ if __name__ == '__main__':
         test_time = time.time() - end_epoch_time
 
         prefix = 'Test' if config['test'] else 'Val'
+        
+        total_acc = val_acc / num_items
+        digit_acc = val_digit_acc / (num_items * config['N'] * 2)
 
-        print(f"{prefix} accuracy: {val_accuracy} {prefix}",
-              f"{prefix} Digit: {val_digit_accuracy} Epoch time: {epoch_time} {prefix} time: {test_time}")
+        print(f"{prefix} accuracy: {total_acc:.4f} {prefix}",
+              f"{prefix} Digit: {digit_acc:.4f} Epoch time: {epoch_time} {prefix} time: {test_time}")
 
         wdb_prefix = 'test' if config['test'] else 'val'
         wandb.log({
             # "epoch": epoch,
-            f"{wdb_prefix}_accuracy": val_accuracy,
-            f"{wdb_prefix}_digit_accuracy": val_digit_accuracy,
+            f"{wdb_prefix}_accuracy": total_acc,
+            f"{wdb_prefix}_digit_accuracy": digit_acc,
             f"{wdb_prefix}_time": test_time,
-            f"{wdb_prefix}_target": val_accuracy + val_digit_accuracy,
+            f"{wdb_prefix}_target": total_acc + digit_acc,
             "epoch_time": epoch_time,
         })
