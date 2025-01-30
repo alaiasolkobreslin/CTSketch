@@ -1,2 +1,24 @@
-data/*
+target
+/Cargo.lock
+
+# MacOS
+.DS_Store
+
+# Python
+/.env
+__pycache__
+env/*
+
+# VSCode
+/.vscode
+
+model
+checkpoint
 wandb
+build
+
+*.pt
+*.pkl
+*.pth
+*.txt
+*.csv
