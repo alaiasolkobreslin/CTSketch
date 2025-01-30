@@ -93,6 +93,7 @@ def mnist_sum_loader(data_dir, batch_size, digit):
       transform=mnist_img_transform,
     )
   train_dataset, val_dataset = torch.utils.data.random_split(dataset, [5000, 1000])
+  
   train_loader = torch.utils.data.DataLoader(
     train_dataset,
     collate_fn=MNISTSumDataset.collate_fn,

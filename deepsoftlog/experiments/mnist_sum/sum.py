@@ -77,7 +77,8 @@ def eval(folder: str, digits=None):
         if cfg['digits'] == 2:
             SPECIAL_MODELS[('plus', 2)] = SumFunctor
         elif cfg['digits'] == 4:
-            SPECIAL_MODELS[('plus4', 4)] = SumFunctor
+            SPECIAL_MODELS[('plus', 2)] = SumFunctor
+            SPECIAL_MODELS[('plus2', 2)] = SumFunctor
         elif cfg['digits'] == 16:
             SPECIAL_MODELS[('plus16', 16)] = SumFunctorAll
         elif cfg['digits'] == 64:

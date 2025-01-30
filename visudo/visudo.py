@@ -27,75 +27,57 @@ def val_sudo(x, label, model, device):
     return acc, acc_prior, acc_clauses, prior_y
 
 if __name__ == '__main__':
-  for i in [10, 9, 8, 7]:
     config = {
-        "N": 9,
+        "N": 4,
         "DEBUG": False,
         "amt_samples": 500,
         "batch_size": 20,
-        "batch_size_test": 200,
+        "batch_size_test": 100,
         "dirichlet_init": 0.02,
         "dirichlet_iters": 18,
-        "dirichlet_L2": 250000,
-        "dirichlet_lr": 0.00285,
-        "epochs": 5000,
+        "dirichlet_L2": 2500000,
+        "dirichlet_lr": 0.0029,
+        "epochs": 1000,
         "encoding": "pair",
         "fixed_alpha": None,
         "hidden_size": 100,
-        "K_beliefs": 1600,
+        "K_beliefs": 2500,
         "layers": 2,
         "log_per_epoch": 1,
         "P_source": "both",
         "percept_loss_pref": 1.0,
-        "perception_lr": 0.000554,
+        "perception_lr": 0.00055,
         "perception_loss": "log-q",
         "policy": "off",
         "predict_only": True,
         "pretrain_epochs": 50,
         "prune": False,
-        "q_lr": 0.00301,
+        "q_lr": 0.003,
         "q_loss": "mse",
-        "split": 11,
+        "split": 1,
         "test": True,
         "train_negatives": True,
         "use_cuda": True,
         "verbose": 0,
         "val_freq": 10,
+        "train": "00100"
     }
-    config["split"] = i
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default=None)
-    known, unknown = parser.parse_known_args()
-    config_file = known.config
-    if config_file is not None:
-        with open(config_file, 'r') as f:
-            config.update(yaml.safe_load(f))
-
-        run = wandb.init(config=config, project="visudo", entity="seewonchoi")
-        config = wandb.config
-        print(config)
-    elif SWEEP:
-        # TODO: I don't get how it's supposed to know what yaml file to open here.
-        with open("visudo/sweeps/sweep4.yaml", 'r') as f:
-            sweep_config = yaml.load(f, Loader=yaml.FullLoader)
-
-        run = wandb.init(config=sweep_config)
-        config.update(wandb.config)
-        print(config)
-    else:
-        run = wandb.init(
+    run = wandb.init(
             project=f'anesi-visudo{config["N"]}',
             name=f'{config["split"]}',
             config=config,
-        )
+    )
+    print(config)
 
     # Check for available GPUs
     use_cuda = config["use_cuda"] and torch.cuda.is_available()
-    device = torch.device(1 if use_cuda else 'cpu')
+    device = torch.device('cuda' if use_cuda else 'cpu')
 
     model = ViSudoModel(config).to(device)
-    train, val, test = get_datasets(config["split"], dimension=config["N"], use_negative_train=config["train_negatives"])
+    train, val, test = get_datasets(config["split"], numTrain=config["train"], dimension=config["N"], use_negative_train=config["train_negatives"])
 
     if config["test"]:
         val = test

@@ -9,9 +9,8 @@ import torchvision
 from torch import nn
 from PIL import Image
 
-#client = OpenAI(
-#  api_key='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'
-#)
+client = None
+# client = OpenAI(api_key='' )
 
 leaves_img_transform = torchvision.transforms.Compose([
   torchvision.transforms.ToTensor(),
@@ -183,8 +182,8 @@ def call_llm(plants, features):
   user_msg = user_list + question
   if user_msg in queries.keys():
     return queries[user_msg]
-  else: raise Exception("GPT")
-  response = client.chat.completions.create(
+  else:
+    response = client.chat.completions.create(
               model="gpt-4-1106-preview",
               messages=[
                 {"role": "system", "content": system_msg},

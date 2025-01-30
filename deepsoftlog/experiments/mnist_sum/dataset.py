@@ -44,10 +44,12 @@ def generate_data(n):
         r_test = 1000 * n % 10000
         q_test = 1000 * n // 10000
         sub_train_val, _ = random_split(MNIST_DATA['training'], [r, 60000 - r])
+        print(len(MNIST_DATA['training']))
+        print(len(sub_train_val))
         MNIST_DATA['training'] = torch.utils.data.ConcatDataset([MNIST_DATA['training']]*q + [sub_train_val])
         MNIST_DATA['training'], MNIST_DATA['validation'] = random_split(MNIST_DATA['training'], [5000*n, 1000*n])
         MNIST_DATA['val'], _ = random_split(MNIST_DATA['training'], [1000*n, 4000*n])
-        sub_test = random_split(MNIST_DATA['test'], [r_test, 10000-r_test])
+        sub_test, _ = random_split(MNIST_DATA['test'], [r_test, 10000-r_test])
         MNIST_DATA['test'] = torch.utils.data.ConcatDataset([MNIST_DATA['test']]*q_test + [sub_test]) 
 
 class MnistImagesDataset(Dataset):

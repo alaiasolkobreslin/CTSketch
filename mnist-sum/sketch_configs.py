@@ -18,56 +18,6 @@ def theta4(elems):
   x4 = torch.arange(0, elems).reshape(1, 1, 1, elems).expand(elems, elems, elems, elems)
   return x1, x2, x3, x4
 
-def theta5(elems):
-  x1 = torch.arange(0, elems).reshape(elems, 1, 1, 1, 1)
-  x2 = torch.arange(0, elems).reshape(1, elems, 1, 1, 1)
-  x3 = torch.arange(0, elems).reshape(1, 1, elems, 1, 1)
-  x4 = torch.arange(0, elems).reshape(1, 1, 1, elems, 1)
-  x5 = torch.arange(0, elems).reshape(1, 1, 1, 1, elems)
-  return x1, x2, x3, x4, x5
-
-def theta6(elems):
-  x1 = torch.arange(0, elems).reshape(elems, 1, 1, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems)
-  x2 = torch.arange(0, elems).reshape(1, elems, 1, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems)
-  x3 = torch.arange(0, elems).reshape(1, 1, elems, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems)
-  x4 = torch.arange(0, elems).reshape(1, 1, 1, elems, 1, 1).expand(elems, elems, elems, elems, elems, elems)
-  x5 = torch.arange(0, elems).reshape(1, 1, 1, 1, elems, 1).expand(elems, elems, elems, elems, elems, elems)
-  x6 = torch.arange(0, elems).reshape(1, 1, 1, 1, 1, elems).expand(elems, elems, elems, elems, elems, elems)
-  return x1, x2, x3, x4, x5, x6
-
-def theta7(elems):
-  x1 = torch.arange(0, elems).reshape(elems, 1, 1, 1, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems)
-  x2 = torch.arange(0, elems).reshape(1, elems, 1, 1, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems)
-  x3 = torch.arange(0, elems).reshape(1, 1, elems, 1, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems)
-  x4 = torch.arange(0, elems).reshape(1, 1, 1, elems, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems)
-  x5 = torch.arange(0, elems).reshape(1, 1, 1, 1, elems, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems)
-  x6 = torch.arange(0, elems).reshape(1, 1, 1, 1, 1, elems, 1).expand(elems, elems, elems, elems, elems, elems, elems)
-  x7 = torch.arange(0, elems).reshape(1, 1, 1, 1, 1, 1, elems).expand(elems, elems, elems, elems, elems, elems, elems)
-  return x1, x2, x3, x4, x5, x6, x7
-
-def theta8(elems):
-  x1 = torch.arange(0, elems).reshape(elems, 1, 1, 1, 1, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems, elems)
-  x2 = torch.arange(0, elems).reshape(1, elems, 1, 1, 1, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems, elems)
-  x3 = torch.arange(0, elems).reshape(1, 1, elems, 1, 1, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems, elems)
-  x4 = torch.arange(0, elems).reshape(1, 1, 1, elems, 1, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems, elems)
-  x5 = torch.arange(0, elems).reshape(1, 1, 1, 1, elems, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems, elems)
-  x6 = torch.arange(0, elems).reshape(1, 1, 1, 1, 1, elems, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems, elems)
-  x7 = torch.arange(0, elems).reshape(1, 1, 1, 1, 1, 1, elems, 1).expand(elems, elems, elems, elems, elems, elems, elems, elems)
-  x8 = torch.arange(0, elems).reshape(1, 1, 1, 1, 1, 1, 1, elems).expand(elems, elems, elems, elems, elems, elems, elems, elems)
-  return x1, x2, x3, x4, x5, x6, x7, x8
-
-def theta9(elems):
-  x1 = torch.arange(0, elems).reshape(elems, 1, 1, 1, 1, 1, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems, elems, elems)
-  x2 = torch.arange(0, elems).reshape(1, elems, 1, 1, 1, 1, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems, elems, elems)
-  x3 = torch.arange(0, elems).reshape(1, 1, elems, 1, 1, 1, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems, elems, elems)
-  x4 = torch.arange(0, elems).reshape(1, 1, 1, elems, 1, 1, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems, elems, elems)
-  x5 = torch.arange(0, elems).reshape(1, 1, 1, 1, elems, 1, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems, elems, elems)
-  x6 = torch.arange(0, elems).reshape(1, 1, 1, 1, 1, elems, 1, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems, elems, elems)
-  x7 = torch.arange(0, elems).reshape(1, 1, 1, 1, 1, 1, elems, 1, 1).expand(elems, elems, elems, elems, elems, elems, elems, elems, elems)
-  x8 = torch.arange(0, elems).reshape(1, 1, 1, 1, 1, 1, 1, elems, 1).expand(elems, elems, elems, elems, elems, elems, elems, elems, elems)
-  x9 = torch.arange(0, elems).reshape(1, 1, 1, 1, 1, 1, 1, 1, elems).expand(elems, elems, elems, elems, elems, elems, elems, elems, elems)
-  return x1, x2, x3, x4, x5, x6, x7, x8, x9
-
 def stream_theta2(digit, elems, output_dim, samples):
   x1, x2 = theta2(elems)
   return x1.flatten(), x2.flatten()
@@ -75,8 +25,6 @@ def stream_theta2(digit, elems, output_dim, samples):
 def full_theta2(digit, elems, output_dim, samples):
   x1, x2 = theta2(elems)
   x = x1 + x2
-  # r = random_theta(digit, elems, output_dim, samples)
-  #r = torch.where(r > 0, r, x)
   return x
 
 def stream_theta3(digit, elems, output_dim, samples):
@@ -95,51 +43,6 @@ def stream_theta4(digit, elems, output_dim, samples):
 def full_theta4(digit, elems, output_dim, samples):
   x1, x2, x3, x4 = theta4(elems)
   x = x1 + x2 + x3 + x4
-  return x
-
-def stream_theta5(digit, elems, output_dim, samples):
-  x1, x2, x3, x4, x5 = theta5(elems)
-  return x1.flatten(), x2.flatten(), x3.flatten(), x4.flatten(), x5.flatten()
-
-def full_theta5(digit, elems, output_dim, samples):
-  x1, x2, x3, x4, x5 = theta5(elems)
-  x = x1 + x2 + x3 + x4 + x5
-  return x
-
-def stream_theta6(digit, elems, output_dim, samples):
-  x1, x2, x3, x4, x5, x6 = theta6(elems)
-  return x1.flatten(), x2.flatten(), x3.flatten(), x4.flatten(), x5.flatten(), x6.flatten()
-
-def full_theta6(digit, elems, output_dim, samples):
-  x1, x2, x3, x4, x5, x6 = theta6(elems)
-  x = x1 + x2 + x3 + x4 + x5 + x6
-  return x
-
-def stream_theta7(digit, elems, output_dim, samples):
-  x1, x2, x3, x4, x5, x6, x7 = theta7(elems)
-  return x1.flatten(), x2.flatten(), x3.flatten(), x4.flatten(), x5.flatten(), x6.flatten(), x7.flatten()
-
-def full_theta7(digit, elems, output_dim, samples):
-  x1, x2, x3, x4, x5, x6, x7 = theta7(elems)
-  x = x1 + x2 + x3 + x4 + x5 + x6 + x7
-  return x
-
-def stream_theta8(digit, elems, output_dim, samples):
-  x1, x2, x3, x4, x5, x6, x7, x8 = theta8(elems)
-  return x1.flatten(), x2.flatten(), x3.flatten(), x4.flatten(), x5.flatten(), x6.flatten(), x7.flatten(), x8.flatten()
-
-def full_theta8(digit, elems, output_dim, samples):
-  x1, x2, x3, x4, x5, x6, x7, x8 = theta8(elems)
-  x = x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8
-  return x
-
-def stream_theta9(digit, elems, output_dim, samples):
-  x1, x2, x3, x4, x5, x6, x7, x8, x9 = theta9(elems)
-  return x1.flatten(), x2.flatten(), x3.flatten(), x4.flatten(), x5.flatten(), x6.flatten(), x7.flatten(), x8.flatten(), x9.flatten()
-
-def full_theta9(digit, elems, output_dim, samples):
-  x1, x2, x3, x4, x5, x6, x7, x8, x9 = theta9(elems)
-  x = x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9
   return x
 
 def random_theta(digit, elems, output_dim, samples):
@@ -164,17 +67,3 @@ def sample_theta(digit, elems, output_dim, samples):
     x_i = tuple(xs[:, i].tolist())
     t[x_i] = sum(x_i)
   return t
-
-'''
-def _program_3(self, *sum_inputs2):
-    batch_size = sum_inputs2[0].shape[0]
-    output = torch.zeros(batch_size, self.total_dim2).to(device)
-    for i, t3_i in enumerate(self.t3):
-      for j, t3_i_j in enumerate(t3_i.to(device)):
-        input_i = sum_inputs2[0][:, i]
-        input_j = sum_inputs2[1][:, j]
-        p = sum_inputs2[2].unsqueeze(-1).bmm(sum_inputs2[3].unsqueeze(1))*((input_i*input_j).reshape(batch_size, 1, 1))
-        output_i = torch.zeros(batch_size, self.total_dim2).to(device).scatter_add_(1, t3_i_j.flatten().repeat(batch_size, 1), p.flatten(1))
-        output += output_i
-    return output
-'''

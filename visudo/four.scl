@@ -4,13 +4,13 @@ rel distinct = {(0, 1, 2, 3), (0, 1, 3, 2), (0, 2, 1, 3), (0, 2, 3, 1), (0, 3, 1
                 (2, 0, 1, 3), (2, 0, 3, 1), (2, 1, 0, 3), (2, 1, 3, 0), (2, 3, 0, 1), (2, 3, 1, 0),
                 (3, 0, 1, 2), (3, 0, 2, 1), (3, 1, 0, 2), (3, 1, 2, 0), (3, 2, 0, 1), (3, 2, 1, 0)}
 
-rel valid(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) = 
+rel valid(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, 1) = 
     distinct(a, b, c, d), distinct(e, f, g, h), distinct(i, j, k, l), distinct(m, n, o, p), 
     distinct(a, e, i, m), distinct(b, f, j, n), distinct(c, g, k, o), distinct(d, h, l, p), 
     distinct(a, b, e, f), distinct(c, d, g, h), distinct(i, j, m, n), distinct(k, l, o, p)
 
-rel visudo(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) = 
+rel visudo(x) = 
     digit_1(a), digit_2(b), digit_3(c), digit_4(d), 
     digit_5(e), digit_6(f), digit_7(g), digit_8(h), 
     digit_9(i), digit_10(j), digit_11(k), digit_12(l), 
-    digit_13(m), digit_14(n), digit_15(o), digit_16(p), valid(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)  
+    digit_13(m), digit_14(n), digit_15(o), digit_16(p), valid(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, x)  

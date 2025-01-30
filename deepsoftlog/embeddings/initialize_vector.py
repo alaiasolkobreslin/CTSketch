@@ -37,6 +37,7 @@ class Initializer:
 
     def _initialize_functor(self, name: str, arity: int) -> nn.Module:
         if (name, arity) in SPECIAL_MODELS:
+            if name == 'lenet5': return SPECIAL_MODELS[(name, arity)](10)
             return SPECIAL_MODELS[(name, arity)](self.ndim)
         return self.model(arity, self.ndim)
 

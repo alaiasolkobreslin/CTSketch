@@ -5,7 +5,7 @@ semantics: sdd2
 
 # Run settings
 nb_workers: 1
-device: cuda
+device: cpu
 seed: 1234
 verbose: true
 digits: 4

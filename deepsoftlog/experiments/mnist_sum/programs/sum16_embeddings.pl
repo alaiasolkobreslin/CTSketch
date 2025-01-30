@@ -153,7 +153,7 @@ sum(N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, Z) :-
     sum_emb(N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, Z).
 
 % Add two lists of embeddings (input1, input2, result)
-sum_emb([], [], []).
+sum_emb([], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []).
 sum_emb([~H1], [~H2], [~H3], [~H4], [~H5], [~H6], [~H7], [~H8], [~H9], [~H10], [~H11], [~H12], [~H13], [~H14], [~H15], [~H16], [HZ]) :-
     digit(HZ),
     eq(~HZ, ~plus16(H1, H2, H3, H4, H5, H6, H7, H8, H9, H10, H11, H12, H13, H14, H15, H16)).

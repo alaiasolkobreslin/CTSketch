@@ -1,12 +1,12 @@
 project: dsl_sum16
-name: "1234"
+name: "9175"
 program: "deepsoftlog/experiments/mnist_sum/programs/sum16_embeddings.pl"
 semantics: sdd2
 
 # Run settings
 nb_workers: 1
 device: cuda
-seed: 1234
+seed: 9175
 verbose: true
 digits: 16
 data_subset: null
@@ -16,7 +16,7 @@ max_proofs: null
 # Optimization settings
 optimizer: AdamW
 functor_learning_rate: 0.0001
-embedding_learning_rate: 0
+embedding_learning_rate: 0.001
 batch_size: 4
 nb_epochs: 100
 weight_decay: 1.0e-05

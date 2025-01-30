@@ -143,7 +143,7 @@ if __name__ == "__main__":
   k = args.top_k
   provenance = args.provenance
 
-  if torch.cuda.is_available(): device = torch.device(1)
+  if torch.cuda.is_available(): device = torch.device('cuda')
   else: device = torch.device('cpu')
 
   torch.manual_seed(args.seed)

@@ -49,6 +49,7 @@ def normalised_l2_distance(x: Tensor, y: Tensor, scale: float = 2):
 
 
 def angular_distance(x: Tensor, y: Tensor, scale: float = 4, eps=1e-6):
+    y = y[:x.shape[0]]
     cosine_similarity = torch.nn.functional.cosine_similarity(x, y, 0)
     # careful: d\dx exp^(-arccos(x)) approaches infinity for x=1
     cosine_similarity -= eps
