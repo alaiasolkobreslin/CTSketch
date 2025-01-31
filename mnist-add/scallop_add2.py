@@ -135,7 +135,7 @@ if __name__ == '__main__':
         with open(config_file, 'r') as f:
             config.update(yaml.safe_load(f))
 
-        run = wandb.init(config=config, project="mnist-add", entity="seewonchoi")
+        run = wandb.init(config=config, project="mnist-add", entity="person")
         config = wandb.config
         print(config)
     else:

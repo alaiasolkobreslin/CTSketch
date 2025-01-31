@@ -4,7 +4,6 @@ from typing import *
 from tqdm import tqdm
 from functools import reduce
 from argparse import ArgumentParser
-from sklearn.metrics import confusion_matrix
 from time import time
 import wandb
 
