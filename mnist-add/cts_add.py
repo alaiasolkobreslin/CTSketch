@@ -206,7 +206,6 @@ if __name__ == "__main__":
   learning_rate = args.learning_rate
   method = args.method
   
-  # for digit in [1, 2, 4, 15, 30, 60]:
   for digit in [2, 4, 15, 30, 60]:
     for seed in [3177, 5848, 9175, 8725, 1234, 1357, 2468, 548, 6787, 8371]:
 
