@@ -16,6 +16,8 @@ model
 checkpoint
 wandb
 build
+data
+results
 
 *.pt
 *.pkl

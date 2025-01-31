@@ -1,8 +1,6 @@
 import os
 import random
 from typing import *
-from tqdm import tqdm
-from functools import reduce
 from argparse import ArgumentParser
 from time import time
 import wandb
@@ -11,6 +9,9 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
+import sys
+import pathlib
+sys.path.insert(0, f'{pathlib.Path(__file__).parent.parent.absolute()}')
 from mnist_config import MNISTSumNet, mnist_multi_digit_sum2_loader
 import sketch_config
 from tensor_sketch import TensorSketch
@@ -71,11 +72,9 @@ class Trainer():
     ps = inputs
     batch_size = inputs[0].shape[0]
     rerr1, cores1, X_hat1 = self.tensorsketch.approx_theta({'gt': self.full_theta1, 'rank': 2})
-    self.t1 = torch.clamp(X_hat1, min=0)
+    self.t1 = torch.clamp(X_hat1.to_numpy(), min=0)
     rerr2, cores2, X_hat2 = self.tensorsketch.approx_theta({'gt': self.full_theta2, 'rank': 2})
-    self.t2 = torch.clamp(X_hat2, min=0)
-    # assert(torch.all(self.t1 == self.full_theta1)) # This assertion sometimes fails - 0 value to -1
-    # assert(torch.all(self.t2 == self.full_theta2))
+    self.t2 = torch.clamp(X_hat2.to_numpy(), min=0)
     self.t1 = self.full_theta1
     self.t2 = self.full_theta2
     mapping = torch.tensor([i % 10 for i in range(20)]).to(device)
@@ -216,8 +215,8 @@ if __name__ == "__main__":
       else: device = torch.device('cpu')
 
       # Data
-      data_dir = os.path.abspath(os.path.join(os.path.abspath(__file__), "../data"))
-      model_dir = os.path.abspath(os.path.join(os.path.abspath(__file__), f"../model/sum_{digit}"))
+      data_dir = os.path.abspath(os.path.join(os.path.abspath(__file__), "../../data"))
+      model_dir = os.path.abspath(os.path.join(os.path.abspath(__file__), f"../../model/sum_{digit}"))
       os.makedirs(model_dir, exist_ok=True)
 
       # Dataloaders

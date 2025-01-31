@@ -1,7 +1,6 @@
 import argparse
 import time
 
-import yaml
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import torch
@@ -125,8 +124,6 @@ class Trainer():
     def test_epoch(self, epoch):
         print("----- TESTING -----")
         val_acc = 0.
-        val_acc_prior = 0.
-        val_explain_acc = 0.
         val_digit_acc = 0.
         
         for i, batch in enumerate(self.test_loader):
@@ -163,31 +160,19 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default=None)
-    known, unknown = parser.parse_known_args()
-    config_file = known.config
-    if config_file is not None:
-        with open(config_file, 'r') as f:
-            config.update(yaml.safe_load(f))
-
-        run = wandb.init(config=config, project="mnist-add", entity="seewonchoi")
-        config = wandb.config
-        print(config)
-    else:
-        name = "addition_" + str(config["N"])
-        wandb.init(
+    name = "addition_" + str(config["N"])
+    run = wandb.init(
             project=f"scallop-{config['op']}",
             name = name,
             config=config,
         )
-        print(config)
+    print(config)
 
     # Check for available GPUs
     use_cuda = config["use_cuda"] and torch.cuda.is_available()
     device = torch.device('cuda' if use_cuda else 'cpu')
 
     op = addition
-    # model = MNIST_Net().to(device)
-    # percept_optimizer = torch.optim.Adam(model.parameters(), lr=config["perception_lr"])
 
     if config["test"]:
         train_set = op(config["N"], "full_train")
