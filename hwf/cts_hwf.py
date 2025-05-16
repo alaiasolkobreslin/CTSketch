@@ -19,7 +19,6 @@ from hwf_config import hwf_loader, SymbolNet, hwf_eval
 
 EPS = 1e-8
 THS = 1e-3
-tensorsketch = TensorSketch('tt')
 ss = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', "+", "-", "*", "/"]
 
 def all_hwf1():
@@ -31,7 +30,7 @@ def all_hwf1():
     output[a] = a
   return 0, output.to(device)
 
-def all_hwf3():
+def all_hwf3(tensorsketch):
   output = torch.zeros(14, 14, 14)
   rs = [list(range(d_i)) for d_i in [15]*3]
   rs = list(itertools.product(*rs))
@@ -42,8 +41,8 @@ def all_hwf3():
       output[a, b, c] = r
     except: continue
   output = torch.round(output, decimals=5)
-  rerr1, cores1, _ = tensorsketch.approx_theta({'gt': output, 'rank': 3})
-  rerr2, cores2, _ = tensorsketch.approx_theta({'gt': output, 'rank': 3})
+  rerr1, cores1, _ = tensorsketch.approx_theta({'gt': output, 'rank': ranks[1]})
+  rerr2, cores2, _ = tensorsketch.approx_theta({'gt': output, 'rank': ranks[1]})
   if rerr1 < rerr2: 
     cores = cores1
     rerr = rerr1
@@ -53,7 +52,7 @@ def all_hwf3():
   cores = [cores_i.to(device) for cores_i in cores]  
   return rerr, cores
 
-def all_hwf5():
+def all_hwf5(tensorsketch):
   output = torch.zeros(14, 14, 14, 14, 14)
   rs = [list(range(d_i)) for d_i in [15]*5]
   rs = list(itertools.product(*rs))
@@ -63,8 +62,8 @@ def all_hwf5():
       r =  hwf_eval([ss[a], ss[b], ss[c], ss[d], ss[e]])
       output[a, b, c, d, e] = r
     except: continue
-  rerr1, cores1, _ = tensorsketch.approx_theta({'gt': output, 'rank': 6})
-  rerr2, cores2, _ = tensorsketch.approx_theta({'gt': output, 'rank': 6})
+  rerr1, cores1, _ = tensorsketch.approx_theta({'gt': output, 'rank': ranks[2]})
+  rerr2, cores2, _ = tensorsketch.approx_theta({'gt': output, 'rank': ranks[2]})
   if rerr1 < rerr2: 
     cores = cores1
     rerr = rerr1
@@ -74,7 +73,7 @@ def all_hwf5():
   cores = [cores_i.to(device) for cores_i in cores]
   return rerr, cores
 
-def all_hwf():
+def all_hwf(tensorsketch):
   output = torch.zeros(14, 14, 14, 14, 14, 14, 14)
   rs = [list(range(d_i)) for d_i in [15]*7]
   rs = list(itertools.product(*rs))
@@ -85,8 +84,8 @@ def all_hwf():
       output[a, b, c, d, e, f, g] = r
     except: continue
   output = torch.round(output, decimals=5)
-  rerr1, cores1, _ = tensorsketch.approx_theta({'gt': output, 'rank': config["rank"]})
-  rerr2, cores2, _ = tensorsketch.approx_theta({'gt': output, 'rank': config["rank"]})
+  rerr1, cores1, _ = tensorsketch.approx_theta({'gt': output, 'rank': ranks[3]})
+  rerr2, cores2, _ = tensorsketch.approx_theta({'gt': output, 'rank': ranks[3]})
   if rerr1 < rerr2: cores, rerr = cores1, rerr1
   else: cores, rerr = cores2, rerr2
   cores = [cores_i.to(device) for cores_i in cores]
@@ -104,7 +103,7 @@ def gt_program(logits, eqn_len):
   return torch.tensor(results).to(device)
 
 class Trainer():
-  def __init__(self, train_loader, test_loader, model_dir, learning_rate, max_len, save_model=False):
+  def __init__(self, tensor_method, train_loader, test_loader, model_dir, learning_rate, max_len, save_model=False):
     self.model_dir = model_dir
     self.network = SymbolNet().to(device)
     self.optimizer = optim.Adam(self.network.parameters(), lr=learning_rate)
@@ -115,18 +114,20 @@ class Trainer():
     self.save_model = save_model
     self.loss_fn = F.l1_loss
     self.max_len = max_len
+    self.tensorsketch = TensorSketch(tensor_method)
+    self.tensor_method = tensor_method
 
   def pretrain(self):
     t0 = time()
     r, self.cs1 = all_hwf1()
     if self.max_len >= 3: 
-      r3, self.cs3 = all_hwf3()
+      r3, self.cs3 = all_hwf3(self.tensorsketch)
       r += r3
     if self.max_len >= 5: 
-      r5, self.cs5 = all_hwf5()
+      r5, self.cs5 = all_hwf5(self.tensorsketch)
       r += r5
     if self.max_len >= 7: 
-      r7, self.cs7 = all_hwf()
+      r7, self.cs7 = all_hwf(self.tensorsketch)
       r += r7
     t1 = time()
     print(t1 - t0)
@@ -164,11 +165,36 @@ class Trainer():
           cs = self.cs5
         elif data[i].shape[0] == 7: 
           cs = self.cs7
+
+        if self.tensor_method == 'tt':
+          temp = torch.einsum('ijk, j -> k', cs[0], data_i[0])
+          for c1, c2 in zip(cs[1:], data_i[1:]):
+            temp = torch.einsum('i, ika, k -> a', temp, c1, c2)
+            output[i] = temp[0]
         
-        temp = torch.einsum('ijk, j -> k', cs[0], data_i[0])
-        for c1, c2 in zip(cs[1:], data_i[1:]):
-          temp = torch.einsum('i, ika, k -> a', temp, c1, c2)
-        output[i] = temp[0]
+        elif self.tensor_method == 'cp':
+          base_indices = [f"{chr(i+97)}" for i in range(len(data_i))]
+          t_indices = [f"{chr(i+97)}r" for i in range(len(data_i))]
+          equation = f"{', '.join(base_indices + t_indices)}, r ->"
+          temp = torch.einsum(equation, *data_i, *cs)
+          output[i] = temp
+
+        elif self.tensor_method == 'tucker':
+          cores = [f"{chr(i+97)}" for i in range(len(data_i))]
+          cores = ''.join(cores)
+          base_indices = [f"{chr(i+97+len(data_i))}{chr(i+97)}" for i in range(len(data_i))]
+          t_indices = [f"{chr(i+97+len(data_i))}" for i in range(len(data_i))]
+          equation = cores + ', ' + f"{', '.join(base_indices + t_indices)} ->"
+          temp = torch.einsum(equation, *cs, *data_i)
+          output[i] = temp
+        
+        elif self.tensor_method == 'tensor_ring':
+          base_indices = [f"{chr(i+97)}" for i in range(len(data_i))]
+          t_indices = [f"{chr(i+97+len(data_i))}{chr(i+97)}{chr(i+97+len(data_i)+1)}" for i in range(len(data_i)-1)]
+          t_indices += [f"{chr(len(data_i)+97+len(data_i)-1)}{chr(len(data_i)+97-1)}{chr(97+len(data_i))}"]
+          equation = f"{', '.join(base_indices + t_indices)} ->"
+          temp = torch.einsum(equation, *data_i, *cs)
+          output[i] = temp
     return output
   
   def train_epoch(self, epoch):
@@ -233,7 +259,8 @@ if __name__ == "__main__":
     parser = ArgumentParser("hwf")
     parser.add_argument("--n-epochs", type=int, default=200)
     parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--learning-rate", type=float, default=0.0001)
+    parser.add_argument("--learning-rate", type=float, default=1e-4)
+    parser.add_argument("--method", type=str, choices=['tt', 'tensor_ring', 'cp', 'tucker'], default='cp')
     parser.add_argument("--max-len", type=int, default=7)
     parser.add_argument("--seed", type=int, default=3177)
     parser.add_argument("--rank", type=int, default=6)
@@ -244,7 +271,11 @@ if __name__ == "__main__":
     batch_size = args.batch_size
     learning_rate = args.learning_rate
     max_len = args.max_len
+    tensor_method = args.method
     seed = args.seed
+    loss = args.loss
+
+    ranks = [3, 3, 3, 3]
 
     if torch.cuda.is_available(): device = torch.device('cuda')
     else: device = torch.device('cpu')
@@ -259,7 +290,7 @@ if __name__ == "__main__":
 
     # Dataloaders
     train_loader, test_loader = hwf_loader(data_dir, batch_size, "expr", max_len)
-    trainer = Trainer(train_loader, test_loader, model_dir, learning_rate, max_len)
+    trainer = Trainer(tensor_method, train_loader, test_loader, model_dir, learning_rate, max_len)
     
     # Setup wandb
     config = vars(args)

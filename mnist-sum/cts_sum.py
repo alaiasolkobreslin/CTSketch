@@ -42,6 +42,7 @@ class Trainer():
     self.digits = digits
     self.dims = [10] + [dim_i * 9 + 1 for dim_i in dims]
     self.tensorsketch = TensorSketch(tensor_method)
+    self.tensor_method = tensor_method
     self.t = [None] * len(digits)
     self.digit_acc = 0
     self.best_acc = 0
@@ -53,8 +54,8 @@ class Trainer():
     err = 0
     for i, digit_i in enumerate(self.digits):
       gt = full_theta(digit_i, self.dims[i], self.dims[i + 1], 0)
-      rerr1, cores1, _ = self.tensorsketch.approx_theta({'gt': gt, 'rank': 2})
-      rerr2, cores2, _ = self.tensorsketch.approx_theta({'gt': gt, 'rank': 2})
+      rerr1, cores1, _ = self.tensorsketch.approx_theta({'gt': gt, 'rank': rank})
+      rerr2, cores2, _ = self.tensorsketch.approx_theta({'gt': gt, 'rank': rank})
       if rerr2 is None or rerr1 < rerr2: rerr, cores = rerr1, cores1
       else: rerr, cores = rerr2, cores2
       self.t[i] = [cores_i.to(device) for cores_i in cores]
@@ -64,11 +65,39 @@ class Trainer():
     return rerr
 
   def sub_product(self, i, *base_inputs):
+    if self.tensor_method == 'tt': 
+      return self.sub_product_tt(i, *base_inputs)
+    elif self.tensor_method == 'cp': 
+      return self.sub_product_cp(i, *base_inputs)
+    elif self.tensor_method == 'tucker': 
+      return self.sub_product_tucker(i, *base_inputs)
+    elif self.tensor_method == 'tensor_ring':
+      return self.sub_product_tr(i, *base_inputs)
+  
+  def sub_product_tt(self, i, *base_inputs):
     t = self.t[i]
     output = torch.einsum('ijk, bj -> bk', t[0], base_inputs[0])
     for c1, c2 in zip(t[1:], base_inputs[1:]):
       output = torch.einsum('bi, ika, bk -> ba', output, c1, c2)
     return output
+
+  def sub_product_cp(self, i, *base_inputs):
+    t = self.t[i]
+    output = torch.einsum('bi, bj, ir, jr -> b', *base_inputs, *t)
+    output = output.unsqueeze(-1)
+    return output 
+  
+  def sub_product_tucker(self, i, *base_inputs):
+      t = self.t[i]
+      output = torch.einsum('ab, ia, jb, ni, nj -> n', *t, *base_inputs)
+      output = output.unsqueeze(-1)
+      return output
+  
+  def sub_product_tr(self, i, *base_inputs):
+      t = self.t[i]
+      output = torch.einsum('ni, nj, aib, bja -> n', *base_inputs, *t)
+      output = output.unsqueeze(-1)
+      return output
 
   def program(self, *inputs):
     ps = inputs
@@ -191,10 +220,11 @@ if __name__ == "__main__":
     parser.add_argument("--n-epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
-    parser.add_argument("--method", type=str, default='tt')
+    parser.add_argument("--method", type=str, choices=['tt', 'tensor_ring', 'cp', 'tucker'], default='tt')
     parser.add_argument("--loss", type=str, default='l1')  
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--depth", type=int, default=1)
+    parser.add_argument("--rank", type=int, default=2)
     args = parser.parse_args()
 
     # Parameters
@@ -205,6 +235,7 @@ if __name__ == "__main__":
     method = args.method
     loss = args.loss
     seed = args.seed
+    rank = args.rank
 
     digits = [2] * depth
     dims = [2 ** (1 + i) for i in range(depth)]
@@ -225,7 +256,6 @@ if __name__ == "__main__":
 
     # setup wandb
     config = vars(args)
-    config["seed"] = seed
     run = wandb.init(
       project=f"sketch_tree{depth}",
       name=f"{seed}",
