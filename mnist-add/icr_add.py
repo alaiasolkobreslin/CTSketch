@@ -1,40 +1,59 @@
 import argparse
 import time
+import random
 
 import yaml
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import torch
+import os
 import wandb
 
-from add_config import addition, MNIST_Net
+from add_config import MNIST_Net, MNISTSumNetICR
+from mnist_config import mnist_multi_digit_sum2_loader
 
 def test(x, label, label_digits, model, device):
-    label_digits_l = list(map(lambda d: d.to(device), label_digits[0] + label_digits[1]))
-    label_digits_l = torch.stack(label_digits_l, dim=-1)
     test_result = model(x)
     output = test_result.argmax(dim=-1)
-    N = len(label_digits[0])
-    n1 = torch.stack([10 ** (N - 1 - i) * output[:, i] for i in range(N)], -1)
-    n2 = torch.stack([10 ** (N - 1 - i) * output[:, N + i] for i in range(N)], -1)
-    pred = n1.sum(dim=-1) + n2.sum(dim=-1)
-    acc = (pred == label).sum()
-    digit_acc = (output == label_digits_l).float().mean()
-    return acc, digit_acc
+    batch_size, total_digits = output.shape
+    N = total_digits // 2
+    n1_digits = output[:, :N]
+    n2_digits = output[:, N:]
+    carry = torch.zeros(batch_size, dtype=torch.long, device=device)
+    pred_sum_digits_lsb = [] 
 
-def indecater_multiplier(batch_size, N, pair, sample_count):
-    icr_mult = torch.zeros((pair, N, sample_count, batch_size, pair))
-    icr_replacement = torch.zeros((pair, N, sample_count, batch_size, pair))
+    for i in range(N-1, -1, -1):
+        digit_sum = n1_digits[:, i].long() + n2_digits[:, i].long() + carry
+        pred_digit = digit_sum % 10
+        carry = digit_sum // 10
+        pred_sum_digits_lsb.append(pred_digit)
+    pred_sum_digits_lsb.append(carry)
+    pred_sum_digits = torch.stack(pred_sum_digits_lsb, dim=1)
+    label_len = label.size(1)
+    pred_len = pred_sum_digits.size(1)
+    if pred_len < label_len:
+        pad = torch.zeros(batch_size, label_len - pred_len, dtype=torch.long, device=device)
+        pred_sum_digits = torch.cat([pred_sum_digits, pad], dim=1)
+    elif pred_len > label_len:
+        pred_sum_digits = pred_sum_digits[:, :label_len]
+    acc = pred_sum_digits.eq(label.long()).all(dim=1).float().mean()
+    digit_acc = output.eq(label_digits.long().to(device)).float().mean()
+
+    return acc.item(), digit_acc.item()
+
+def indecater_multiplier(batch_size, N, pair, sample_count, device):
+    icr_mult = torch.zeros((pair, N, sample_count, batch_size, pair), device=device)
+    icr_replacement = torch.zeros((pair, N, sample_count, batch_size, pair), device=device)
     for i in range(pair):
       for j in range(N):
         icr_mult[i,j,:,:,i] = 1
         icr_replacement[i,j,:,:,i] = j
-    return icr_mult.to(device), icr_replacement.to(device)
+    return icr_mult, icr_replacement
 
-def sub_program_2(logits, samples, label):
+def sub_program_2(logits, samples, label, device):
     outer_samples = torch.stack([samples] * 10, dim=0)
     outer_samples = torch.stack([outer_samples] * 2, dim=0)
-    m, r = indecater_multiplier(logits.shape[0], 10, 2, samples.shape[0])
+    m, r = indecater_multiplier(logits.shape[0], 10, 2, samples.shape[0], device)
     outer_samples = outer_samples * (1 - m) + r
     outer_loss = torch.where(outer_samples.sum(dim=-1)%10 == label, 1., 0.)
 
@@ -43,10 +62,10 @@ def sub_program_2(logits, samples, label):
     indecater_expression = indecater_expression.sum(dim=-1).sum(dim=-1)
     return indecater_expression
 
-def sub_program_1(logits, samples, label):
+def sub_program_1(logits, samples, label, device):
     outer_samples = torch.stack([samples] * 10, dim=0)
     outer_samples = torch.stack([outer_samples] * 2, dim=0)
-    m, r = indecater_multiplier(logits.shape[0], 10, 2, samples.shape[0])
+    m, r = indecater_multiplier(logits.shape[0], 10, 2, samples.shape[0], device)
     outer_samples = outer_samples * (1 - m) + r
     outer_loss = torch.where(torch.floor_divide(outer_samples.sum(dim=-1), 10) == label, 1., 0.)
 
@@ -55,26 +74,26 @@ def sub_program_1(logits, samples, label):
     indecater_expression = indecater_expression.sum(dim=-1).sum(dim=-1)
     return indecater_expression
 
-def digit_fn4(data, target):
+def digit_fn4(data, target, gt_digit):
     n1 = torch.floor_divide(data[:, :, :, :, 0] + data[:, :, :, :, 1], 10)
     n2 = (data[:, :, :, :, 2] + data[:, :, :, :, 3])%10
     pred = n1 + n2
     acc = torch.where(pred == target, 1., 0.)
     return acc
 
-def sub_program_4(logits, samples, target):
+def sub_program_4(logits, samples, target, gt_digit, device):
     outer_samples = torch.stack([samples] * 10, dim=0)
     outer_samples = torch.stack([outer_samples] * 4, dim=0)
-    m, r = indecater_multiplier(logits.shape[0], 10, 4, samples.shape[0])
+    m, r = indecater_multiplier(logits.shape[0], 10, 4, samples.shape[0], device)
     outer_samples = outer_samples * (1 - m) + r
-    outer_loss = digit_fn4(outer_samples, target)
+    outer_loss = digit_fn4(outer_samples, target, gt_digit)
 
     variable_loss = outer_loss.mean(dim=2).permute(2,0,1)
     indecater_expression = variable_loss.detach() * F.softmax(logits, dim=-1)
     indecater_expression = indecater_expression.sum(dim=-1).sum(dim=-1)
     return indecater_expression
 
-def program_compose(P, target, n):
+def program_compose(P, target, n, gt_digit, device):
     sample_count = config["amt_samples"]
     d = torch.distributions.Categorical(logits=P)
     samples = d.sample((sample_count,))
@@ -83,18 +102,18 @@ def program_compose(P, target, n):
 
     n1 = P[:, :n]
     n2 = P[:, n:]
-    
+
     results = []
-    indecater_expression = sub_program_2(torch.stack((n1[:, n-1], n2[:, n-1]), dim=1), torch.stack((samples1[:, :, n-1], samples2[:, :, n-1]), dim=-1), target%10)
+    indecater_expression = sub_program_2(torch.stack((n1[:, n-1], n2[:, n-1]), dim=1), torch.stack((samples1[:, :, n-1], samples2[:, :, n-1]), dim=-1), target[:, 0], device)
     results.append(indecater_expression)
     for i in range(1, n):
-        target = torch.floor_divide(target, 10)
+        target = target[:, 1:]
         n_i = torch.stack((n1[:, n-i], n2[:, n-i], n1[:, n-(i+1)], n2[:, n-(i+1)]), dim=1)
         s_i = torch.stack((samples1[:, :, n-i], samples2[:, :, n-i], samples1[:, :, n-(i+1)], samples2[:, :, n-(i+1)]), dim=-1)
-        indecater_expression = sub_program_4(n_i, s_i, target%10)
+        indecater_expression = sub_program_4(n_i, s_i, target[:, 0], gt_digit, device)
         results.append(indecater_expression)
-    target = torch.floor_divide(target, 10)
-    indecater_expression = sub_program_1(torch.stack((n1[:, 0], n2[:, 0]), dim=1), torch.stack((samples1[:, :, 0], samples2[:, :, 0]), dim=-1), target)
+    target = target[:, 1:]
+    indecater_expression = sub_program_1(torch.stack((n1[:, 0], n2[:, 0]), dim=1), torch.stack((samples1[:, :, 0], samples2[:, :, 0]), dim=-1), target[:, 0], device)
     results.append(indecater_expression)
     
     results = torch.stack(results, dim=0)
@@ -106,7 +125,7 @@ if __name__ == '__main__':
     config = {
         "use_cuda": True,
         "DEBUG": False,
-        "N": 1,
+        "N": 100,
         "op": "add",
         "model": "full",
         "test": True,
@@ -114,9 +133,11 @@ if __name__ == '__main__':
         "batch_size_test": 16,
         "amt_samples": 100,
         "perception_lr": 1e-3,
-        "epochs": 30,
+        "epochs": 100,
         "log_per_epoch": 10
     }
+
+    digit = config["N"]
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default=None)
@@ -125,13 +146,12 @@ if __name__ == '__main__':
     if config_file is not None:
         with open(config_file, 'r') as f:
             config.update(yaml.safe_load(f))
-
         run = wandb.init(config=config, project="mnist-add", entity="person")
         config = wandb.config
         print(config)
     else:
         wandb.init(
-            project=f"icr-add{config['N']}",
+            project=f"icr-add{digit}",
             config=config,
         )
         print(config)
@@ -140,19 +160,16 @@ if __name__ == '__main__':
     use_cuda = config["use_cuda"] and torch.cuda.is_available()
     device = torch.device('cuda' if use_cuda else 'cpu')
 
-    op = addition
     model = MNIST_Net(with_softmax=False)
+    model = model.to(device)
     percept_optimizer = torch.optim.Adam(model.parameters(), lr=config["perception_lr"])
 
-    if config["test"]:
-        train_set = op(config["N"], "full_train")
-        val_set = op(config["N"], "test")
-    else:
-        train_set = op(config["N"], "train")
-        val_set = op(config["N"], "val")
+    # Data
+    data_dir = os.path.abspath(os.path.join(os.path.abspath(__file__), "../../data"))
+    model_dir = os.path.abspath(os.path.join(os.path.abspath(__file__), f"../../model/sum_{digit}"))
+    os.makedirs(model_dir, exist_ok=True)
 
-    train_loader = DataLoader(train_set, config["batch_size"], False)
-    val_loader = DataLoader(val_set, config["batch_size_test"], False)
+    train_loader, val_loader = mnist_multi_digit_sum2_loader(data_dir, config["batch_size"], digit)
 
     print(len(val_loader))
 
@@ -173,12 +190,15 @@ if __name__ == '__main__':
         for i, batch in enumerate(train_loader):
             percept_optimizer.zero_grad()
             # label_digits is ONLY EVER to be used during testing!!!
-            numb1, numb2, label, label_digits = batch
+            data, label, label_digits = batch
 
+            numb1 = torch.squeeze(torch.stack(data[:digit], dim=1))
+            numb2 = torch.squeeze(torch.stack(data[digit:], dim=1))
             x = torch.cat([numb1, numb2], dim=1).to(device)
-            label = label.to(device)
+
             output = model(x)
-            loss = program_compose(output, label, config["N"])
+            label = label.to(device)
+            loss = program_compose(output, label, config["N"], label_digits, device)
             loss.backward()
             percept_optimizer.step()
 
@@ -214,10 +234,15 @@ if __name__ == '__main__':
         val_explain_acc = 0.
         val_digit_acc = 0.
         for i, batch in enumerate(val_loader):
-            numb1, numb2, label, label_digits = batch
-            x = torch.cat([numb1, numb2], dim=1)
+            # numb1, numb2, label, label_digits = batch
+            # x = torch.cat([numb1, numb2], dim=1)
+            data, label, label_digits = batch
+            numb1 = torch.squeeze(torch.stack(data[:digit], dim=1))
+            numb2 = torch.squeeze(torch.stack(data[digit:], dim=1))
+            x = torch.cat([numb1, numb2], dim=1).to(device)
+            label = label.to(device)
 
-            test_result = test(x.to(device), label.to(device), label_digits, model, device)
+            test_result = test(x, label, label_digits, model, device)
             val_acc += test_result[0]
             val_digit_acc += test_result[1]
 
